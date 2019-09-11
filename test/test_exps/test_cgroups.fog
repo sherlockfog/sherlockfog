@@ -1,0 +1,23 @@
+# vars
+let baseLat 0.2
+let graphSize 4
+
+# nodes
+for n in 0..{graphSize} do def n{n} {nextRealHost}
+
+# edges
+connect n0 n1 {baseLat}ms
+connect n0 n2 {baseLat}ms
+connect n1 n3 {baseLat}ms
+
+set-bandwidth all 100mbps
+
+# cgroup
+for n in 0..{graphSize} do
+	cgroup-set-cfs-quota n{n} 25000
+end for
+
+# build
+build-network
+
+shell n0

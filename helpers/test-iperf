@@ -1,0 +1,2 @@
+#!/bin/bash
+iperf -u -s >/dev/null 2>&1 & echo $! | tee /tmp/test-iperf

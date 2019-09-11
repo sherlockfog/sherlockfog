@@ -1,0 +1,3 @@
+#!/bin/bash
+hostname "$1" >/dev/null 2>&1
+$(which sshd) -D -u0 -o UseDNS=no & echo $!

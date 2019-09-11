@@ -1,0 +1,21 @@
+def n0 {nextRealHost}
+def n1 {nextRealHost}
+
+let baseLat 0.12
+
+##
+connect n0 n1 {baseLat}ms
+
+##
+build-network
+
+for lat in 10..51..10 do
+	set-delay n0 n1 {lat}ms
+	runas n0 netns n0 mgeier ping -c 5 -A {n1.default_iface.ip} >&2 >&2
+	for bw in 10..101..10 do
+		set-bandwidth n0 n1 {bw}Mbit
+		runas n0 netns n0 mgeier {pwd}/test-iperf
+		runas n1 netns n1 mgeier iperf -c {n0.default_iface.ip} -u -b 100M -t 5 >&2
+		runas n0 netns n0 mgeier kill $(cat /tmp/test-iperf)
+	end for
+end for

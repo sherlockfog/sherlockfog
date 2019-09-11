@@ -1,0 +1,28 @@
+# vars
+let baseLat 0.2
+let exitNode1 0
+let exitNode2 15
+let graphSize 16
+
+# nodes
+for n in 0..{graphSize} do def n{n} {nextRealHost}
+
+# edges
+connect n0 n2 {baseLat}ms
+connect n0 n4 {baseLat}ms
+connect n0 n6 {baseLat}ms
+connect n0 n8 {baseLat}ms
+connect n0 n10 {baseLat}ms
+connect n0 n12 {baseLat}ms
+connect n0 n14 {baseLat}ms
+connect n0 n15 {baseLat}ms
+connect n1 n15 {baseLat}ms
+connect n3 n15 {baseLat}ms
+connect n5 n15 {baseLat}ms
+connect n7 n15 {baseLat}ms
+connect n9 n15 {baseLat}ms
+connect n11 n15 {baseLat}ms
+connect n13 n15 {baseLat}ms
+
+# build
+build-network

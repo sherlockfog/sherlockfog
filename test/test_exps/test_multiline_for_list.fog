@@ -1,0 +1,7 @@
+# define network
+include test_big_network.fog
+
+# test list-ranged for
+for n in [0, 2, 4, 10, 50, 70, 80,90, 100] do
+	runas n0 netns n0 mgeier echo {n}
+end for

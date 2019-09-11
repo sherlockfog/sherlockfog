@@ -1,0 +1,23 @@
+# vars
+let graphSize 8
+
+# nodes
+for h in 0..{graphSize} do def h{h} {nextRealHost}
+
+# edges
+connect h0 h1 2ms
+connect h0 h2 4ms
+connect h0 h3 1ms
+connect h1 h4 5ms
+connect h1 h5 1ms
+connect h4 h6 1ms
+connect h4 h7 1ms
+
+set-bandwidth all 100mbps
+
+# build
+build-network
+
+# run ping in adm network
+#for h in 0..{graphSize} do runadm h{h} as mgeier ping -c 1 h{h}
+shelladm

@@ -1,0 +1,6 @@
+# define network
+include test_set_bandwidth_groups_network.fog
+
+runas n0 netns n0 mgeier echo "{edgeClusters}"
+
+set-bandwidth {edgeClusters} 10mbps

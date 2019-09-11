@@ -1,0 +1,1841 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+from __future__ import print_function
+
+from collections import defaultdict
+import os, re, sys, collections, pexpect, struct, argparse, shutil, itertools, datetime
+
+import threading
+import distutils.util
+import traceback
+
+try:
+    import importlib.resources as pkg_resources
+except ImportError:
+    # Try backported to PY<37 `importlib_resources`.
+    import importlib_resources as pkg_resources
+
+import paramiko
+import networkx as nx
+try:
+    import matplotlib
+    # change matplotlib backend if DISPLAY is not set
+    if 'DISPLAY' not in os.environ:
+         matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+except:
+    # FIXME replace with dummy obj
+    plt = None
+
+#import IPython
+global debug
+global debugf
+debug = True
+debugf = None
+
+"""
+High Level Commands
+===================
+
+    * def <node> <ip>: inits ssh connection to ip and maps connection to <name>.
+
+    * let <var> <value>: bind variable name <var> to immutable value <value>.
+
+    * build-network: initialize static routing tables, static ARP and local /etc/hosts.
+
+    * for <var> in <start..end> do <cmd>: executes <cmd> binding {var} to values in range <start..end>.
+
+    * include <file>: executes commands in file <file>
+
+    * set-delay [at=delay] <node1> <node2> <extra args>: sets bidirectional latency between <node1> and <node2>.
+    Nodes must be connected. See set-latency for reference on <extra args> (netem args).
+    Optional argument [at=delay] queues command to be executed after <delay> seconds.
+
+    * set-bandwidth [at=delay] <node1> <node2> <extra args>: sets bidirectional bandwidth between <node1> and <node2>.
+    Nodes must be connected. See set-latency for reference on <extra args> (netem args).
+    Optional argument [at=delay] queues command to be executed after <delay> seconds.
+
+    * shell <node> [args]: launches terminal in node using args to setup connection (supported args: username='blah' ns='ns')
+    * shell: launches local terminal
+    * shelladm [args]: launches admin terminal in using args to setup connection (supported args: username='blah' ns='ns')
+
+    * xterm: launches local xterm
+
+Low Level Commands
+==================
+
+    * netns <node> <name>: create netns named <name> on <node>
+    * cgroup-set-cpu-shares <node> <shares>: limit cgroup in <node> to <shares> CPU shares.
+    * cgroup-set-cfs-quota <node> <quota>: set cgroup scheduler quota in <node> to <quota>/100000.
+    * set-latency <node1> <node2> dev <dev> netem <extra args>: sets bidirectional latency between <node1> and <node2> IPs on outgoing device <dev> using <extra args> on filter.
+    * set-link <node> dev <dev> <extra args>: runs ip link set on <node> on iface <dev> using <extra args>
+    * <commented out>route <node> netns <ns> <net> via <dev>: sets routing entry for network <net> on node <node> in namespace <ns> via device <dev></commented out>
+    * run <node> <cmd>: executes <cmd> in <node>, raises IOError on stderr
+    * run <node> netns <ns> <cmd>: executes <cmd> on <node> in namespace <ns>, raises IOError on stderr
+    * runas <node> <user> <cmd>: executes <cmd> on <node> as user <user> (only if remote user is root), raises IOError on stderr
+    * runas <node> netns <ns> <user> <cmd>: executes <cmd> on <node> in namespace <ns> as user <user> (only if remote user is root), raises IOError on stderr
+    * service <node> netns <ns> <cmd>: executes <cmd> on <node> in namespace <ns>, raises IOError on stderr, kills PID on close. Command must return PID on readline.
+    * sysctl <node> <var> <value>: sets sysctl variable <var> on node <node> to <value>
+    * tc <node> dev <dev> <extra args>: shapes <dev> on <node> using <extra args> (netem arguments)
+    * tc <node> netns <name> dev <dev> <extra args>: shapes <dev> on <node> in namespace <name> using <extra args> (netem arguments)
+    * tcraw <node> <extra args>: runs tc on <node> using <extra args>
+    * <commented out>veth <node> netns <name> link <dev1> dev <dev2> ip <ipmask>: clone <dev1> into <dev2>, set netns to <name> and assign IP <ipmask></commented out>
+"""
+
+if debug:
+    debugf = open('/tmp/sherlockdebug.log', 'w')
+
+def find_route_destination(pool, route):
+    for h in pool.hosts:
+        for ifn, ifr in h.ifaces.items():
+            #print(type(ifr))
+            if IPUtil.network_addr(*IPUtil.split_ipmask(str(ifr))) == IPUtil.network_addr(*IPUtil.split_ipmask(route)):
+                return h.name
+
+def debug_route(host, r, if1, ns=None):
+    global debug
+    if debug:
+        print("DEBUG ROUTE {0} -> {1} via {2} ns:{3}".format(host.name, r, if1, ns))
+        print("DEBUG ROUTE {0} -> {1} via {2} ns:{3}".format(host.name, r, if1, ns), file=debugf)
+
+# https://docs.python.org/3/library/itertools.html
+def pairwise(iterable):
+    "s -> (s0,s1), (s1,s2), (s2, s3), ..."
+    a, b = itertools.tee(iterable)
+    next(b, None)
+    return zip(a, b)
+
+def run_or_queue(fn, at=None):
+    if at is not None:
+        # FIXME lock?
+        t = threading.Timer(float(at), fn)
+        t.start()
+        return t
+    else:
+        return fn()
+
+def make_timestamp():
+    return datetime.datetime.now()
+
+def log_command(ip, cmd):
+    print('[{0}] {1} -> {2}'.format(make_timestamp(), ip, cmd))
+
+class IPUtil(object):
+    @staticmethod
+    def bcast_addr(ip, mask):
+        ip = IPUtil.inet_aton(ip)
+        addr = ip | ((1 << (32-mask))-1)
+        return IPUtil.inet_ntoa(addr)
+    @staticmethod
+    def network_addr(ip, mask):
+        ip = IPUtil.inet_aton(ip)
+        addr = ip & (((1 << mask)-1) << (32-mask))
+        return IPUtil.inet_ntoa(addr)
+    @staticmethod
+    def inet_aton(ip):
+        m = re.match('(\d+)\.(\d+)\.(\d+)\.(\d+)', ip)
+        packed_ip = struct.pack('BBBB',
+                int(m.group(1)),
+                int(m.group(2)),
+                int(m.group(3)),
+                int(m.group(4)))
+        ip = struct.unpack('>I', packed_ip)[0]
+        return ip
+    @staticmethod
+    def inet_ntoa(addr):
+        t = struct.unpack('BBBB', struct.pack('>I', addr))
+        return "{0}.{1}.{2}.{3}".format(*t)
+    @staticmethod
+    def split_ipmask(m):
+        ip, mask = m.split('/')
+        mask = int(mask)
+        return ip, mask
+    @staticmethod
+    def join_ipmask(ip, m):
+        return '{0}/{1}'.format(ip, m)
+
+class Topo(object):
+    def __init__(self, name='topo0'):
+        self.g = nx.Graph()
+        self.root = None
+    def add_host(self, h):
+        if self.root is None:
+            self.root = h.name
+        self.g.add_node(h.name)
+    def connect(self, h1, h2):
+        #print("adding edge -> {0} {1}".format(h1, h2))
+        self.g.add_edge(h1, h2)
+    def set_delay(self, h1, h2, delay):
+        #print('set delay in topo: ', h1, h2, delay)
+        self.g[h1][h2]['delay'] = delay
+    def set_link_addr(self, h1, h2, addr):
+        self.g[h1][h2]['addr'] = addr
+    def get_link_addr(self, h1, h2):
+        return self.g[h1][h2]['addr']
+    def all_pairs_shortest_path(self):
+        return nx.all_pairs_shortest_path(self.g)
+    def save(self, *args):
+        if len(args) == 0:
+            out = '{0}.pdf'.format(self.name)
+        else:
+            out = args[0]
+        # root node is the node with the highest degree
+        root_node = max((y, x) for x, y in self.g.degree().items())[1]
+        # calculate node layout
+        #pos = nx.nx_pydot.graphviz_layout(self.g, prog='twopi', root=root_node)
+        pos = nx.nx_pydot.graphviz_layout(self.g, prog='fdp', root=root_node)
+        plt.figure(figsize=(12,8))
+        nx.draw(self.g, pos=pos, with_labels=True, node_size=600)
+
+        # build edge labels using delay and addr info
+        edge_labels_delay = nx.get_edge_attributes(self.g, 'delay')
+        edge_labels_addr = nx.get_edge_attributes(self.g, 'addr')
+        #print(edge_labels_delay)
+        #print({k:str(v) for k,v in edge_labels_addr.items()})
+        edge_labels = {k: '{0} {1}'.format(edge_labels_addr[k], edge_labels_delay[k]) for k in edge_labels_delay.keys()}
+        #print('edge_labels: {0}'.format(edge_labels))
+        #print(self.g.edges())
+
+        nx.draw_networkx_edge_labels(self.g, pos=pos, edge_labels=edge_labels, edge_size=1600)
+        plt.savefig(out)
+        #IPython.embed()
+
+class IPPool(object):
+    BASE = '10.67.0.0/16'
+    def __init__(self, base=None):
+        if base is None:
+            base = self.BASE
+        base_addr, base_mask = IPUtil.split_ipmask(base)
+        self.base = IPUtil.inet_aton(base_addr)
+        self.mask = base_mask
+        self.cur = self.base
+    def next_subnet(self, mask):
+        p = IPPool(IPUtil.join_ipmask(IPUtil.inet_ntoa(self.cur), mask))
+        self.cur += (1 << (32-mask))
+        return p
+    def ips(self):
+        return list(iter(self))
+    def __str__(self):
+        return IPUtil.join_ipmask(IPUtil.inet_ntoa(self.base), self.mask)
+    def __iter__(self):
+        return (IPUtil.join_ipmask(IPUtil.inet_ntoa(self.base + ip), self.mask) for ip in range(1, (1 << (32-self.mask))-1))
+
+class HostPool(object):
+    P2P_MASK = 30
+    def __init__(self, name, base=None, args=None, use_adm=False):
+        self.name = name
+        self.hosts_dict = {}
+        self.hosts = []
+        self.ippool = IPPool(base=base)
+        self.networks = {}
+        self.topo = None
+        self.real_hosts = []
+        self.args = args
+        # setup administrative vhost
+        self.adm_host = None
+        if use_adm:
+            self.adm_host = AdminHost('adm',
+                    args.adm_iface_addr,
+                    args=args)
+            self.adm_host.pool = self
+            self.adm_pool = iter(IPPool(base=args.base_adm_prefix))
+            #print('DEBUG  adm', self.adm_host.real_default_iface.name, 'adm0', next(self.adm_pool))
+            self.adm_host.veth('adm', self.adm_host.real_default_iface.name, 'adm0', next(self.adm_pool), is_adm=True)
+    def add_real_host(self, name):
+        self.real_hosts.append(name)
+    def close(self):
+        if self.adm_host:
+            self.adm_host.close()
+        for _, h in self.hosts_dict.items():
+            h.close()
+        #print('DEBUG:  cerrando el hostpool', self.hosts_dict)
+    def new_network(self, mask):
+        return self.ippool.next_subnet(mask)
+    def set_p2p_route(self, if1, if2):
+        ns1 = if1.parent.name
+        ns2 = if2.parent.name
+        if1.parent.exec_batch('ip route flush dev {0}'.format(if1.name), ns=ns1)
+        if1.parent.exec_batch('ip route add {0} dev {1}'.format(if2.ip, if1.name), ns=ns1)
+        if1.parent.exec_batch_commit()
+        if2.parent.exec_batch('ip route flush dev {0}'.format(if2.name), ns=ns2)
+        if2.parent.exec_batch('ip route add {0} dev {1}'.format(if1.ip, if2.name), ns=ns2)
+        if2.parent.exec_batch_commit()
+    def connect(self, h1, h2, *args):
+        h1 = self.hosts_dict[h1]
+        h2 = self.hosts_dict[h2]
+
+        # create new P2P interface
+        net = self.new_network(self.P2P_MASK)
+        h1_ip, h2_ip = net.ips()
+
+        # FIXME this IP assignment doesn't take into account possible manual assignments
+        veth_h1 = h1.veth(h1.name, h1.real_default_iface.name, h1.new_iface_name(), h1_ip)
+        veth_h2 = h2.veth(h2.name, h2.real_default_iface.name, h2.new_iface_name(), h2_ip)
+
+        if self.args.routing_algo == 'shortest_path' or self.args.routing_algo == 'world_topo':
+            # change default network-based routing to P2P
+            self.set_p2p_route(veth_h1, veth_h2)
+        self.set_delay(h1.name, h2.name, *args, veth_h1=veth_h1, veth_h2=veth_h2)
+        # record netaddr in graph abstraction
+        if self.topo is not None:
+            self.topo.set_link_addr(h1.name, h2.name, net)
+    def link_iter(self):
+        assert self.topo is not None
+        for e in self.topo.g.edges():
+            #print('DEBUG ', e)
+            yield e
+    def set_delay(self, h1, h2, *args, **kwargs):
+        h1 = self.hosts_dict[h1]
+        h2 = self.hosts_dict[h2]
+        if 'veth_h1' in kwargs:
+            veth_h1 = kwargs['veth_h1']
+        else:
+            veth_h1 = self.get_endpoint_iface(h1, h2)
+        if 'veth_h2' in kwargs:
+            veth_h2 = kwargs['veth_h2']
+        else:
+            veth_h2 = veth_h1.endpoint
+        if len(args) > 0:
+            # shape inbound traffic in both directions
+            h1.tc(veth_h1.name, 'delay {0}'.format(args[0]), ns=h1.name, **kwargs)
+            h2.tc(veth_h2.name, 'delay {0}'.format(args[0]), ns=h2.name, **kwargs)
+            # record delay in graph abstraction
+            if self.topo is not None:
+                self.topo.set_delay(h1.name, h2.name, args[0])
+    def set_bandwidth(self, h1, h2, *args, **kwargs):
+        h1 = self.hosts_dict[h1]
+        h2 = self.hosts_dict[h2]
+        #print('DEBUG  set_bandwidth 1', h1, h2, *args, **kwargs)
+        if 'veth_h1' in kwargs:
+            veth_h1 = kwargs['veth_h1']
+        else:
+            veth_h1 = self.get_endpoint_iface(h1, h2)
+        #print('DEBUG  set_bandwidth 2', veth_h1)
+        if 'veth_h2' in kwargs:
+            veth_h2 = kwargs['veth_h2']
+        else:
+            veth_h2 = veth_h1.endpoint
+        if len(args) > 0:
+            # change inbound bw in both directions
+            # FIXME is latency correctly set?
+            h1.tcraw('qdisc change dev {0} root handle 1: tbf rate {1} burst 15k latency {2}ms'.format(veth_h1.name, args[0], 15*8), ns=h1.name, **kwargs)
+            h2.tcraw('qdisc change dev {0} root handle 1: tbf rate {1} burst 15k latency {2}ms'.format(veth_h2.name, args[0], 15*8), ns=h2.name, **kwargs)
+    def add_host(self, host):
+        # check if using reserved name, this is used for magic placeholder replacement
+        if host.name == 'nextRealHost':
+            raise NameError('invalid node name')
+        self.hosts_dict[host.name] = host
+        self.hosts.append(host)
+        host.pool = self
+        host.topo = self.topo
+        self.topo.add_host(host)
+        # add administrative interface
+        if self.adm_host:
+            h = host.veth(host.name, host.real_default_iface.name, 'adm0', next(self.adm_pool), is_adm=True)
+            self.adm_host.add_host(h)
+    def find_host(self, name):
+        return self.hosts_dict[name]
+    def shell(self):
+        dry_run = self.args.dry_run
+        if not dry_run:
+            p = pexpect.spawn('/bin/bash', env=self.environ())
+            p.interact(chr(29))
+    def environ(self):
+        env = os.environ.copy()
+        for name, h in self.hosts_dict.items():
+            env[name] = h.ip
+        return env
+    def get_endpoint_iface(self, h1, h2):
+        # get iface from h1 that is connected to h2
+        for if1 in h1.ifaces.values():
+            if if1.endpoint is not None and if1.endpoint.parent == h2:
+                return if1
+    def find_endpoint_iface(self, if1):
+        # look up which network interface is connected to the same network as if1
+        # FIXME optimizations!
+        netaddr1 = IPUtil.network_addr(if1.ip, if1.mask)
+        for h in self:
+            if h.name != if1.parent.name:
+                for if2 in h.ifaces.values():
+                    netaddr2 = IPUtil.network_addr(if2.ip, if2.mask)
+                    if netaddr1 == netaddr2:
+                        return if2
+        return None
+    def waitall(self):
+        for h in self.hosts_dict.values():
+            h.wait()
+    def static_routes(self):
+        def static_routes_for_host(h, all_pairs, ifaces_dict):
+            shortest_from_h = all_pairs[h.name]
+            for dest, shortest_path in shortest_from_h.items():
+                # add routes to every end node on every path starting from h
+                ### we need two nodes
+                #### first -> outgoing interface
+                #### last -> destination node
+                if len(shortest_path) > 1:
+                    shortest_path.pop(0) # that's always us, remove it
+                    via = self.get_endpoint_iface(h, self.hosts_dict[shortest_path[0]])
+                    #print(h.name, 'via', via, shortest_path)
+                    #print('dest', shortest_path[-1], self.hosts_dict[shortest_path[-1]].ifaces)
+                    for ifn, ifaddr in self.hosts_dict[shortest_path[-1]].ifaces_non_adm().items():
+                        if ifaddr.network_addr() == via.network_addr(): # FIXME ugly
+                            continue
+                        #print('if:', ifn, ifaddr)
+                        #debug_route(h, ifaddr.ip, via, ns=h.name)
+                        h.route(ifaddr.ip, via.name, batch=False, ns=h.name)
+            #h.exec_batch_commit()
+
+        if self.topo is not None:
+            all_pairs = dict(self.topo.all_pairs_shortest_path())
+            ifaces_dict = {}
+            for k, v in self.hosts_dict.items():
+                ifaces_dict[k] = v.ifaces_non_adm().items()
+            self.parallel_foreach_host(static_routes_for_host, all_pairs, ifaces_dict)
+
+    def static_routes_world_topo(self):
+        def find_country_gw(d, country):
+            return next(iter(x for x in d[country] if x.name.endswith(country)))
+        def find_connecting_iface(h1, h2):
+            for ifn, ifaddr in h1.ifaces_non_adm().items():
+                if ifaddr.endpoint.parent == h2:
+                    return ifaddr
+        # this routing strategy is heavily based on the names of the nodes
+        # make sure that:
+        #   end nodes               -> h{num}
+        #   intermediate switches   -> s{num}
+        #   world backbone switches -> s{num}-{cTLD}
+        #   nodes MUST have a country property (cTLD) to route them correctly
+        def static_routes_world_topo_for_host(h, nodes_by_country):
+            ifaces = h.ifaces_non_adm()
+            if h.name.startswith('h'):
+                # end node, must be a leaf: connect to every other node using neighboring switch
+                if len(ifaces.keys()) != 1:
+                    raise ValueError('{0} node is not a leaf'.format(h.name))
+                via = ifaces[next(iter(ifaces.keys()))]
+                h.route('default', via.name, batch=False, ns=h.name) # default gateway
+            elif re.match('^s\d+$', h.name):
+                # node is a switch, default route is the switch next to it
+                # end nodes are connected directly so a route is not required
+                for ifn, ifaddr in ifaces.items():
+                    if not ifaddr.endpoint.parent.name.startswith('h'):
+                        h.route('default', ifaddr.name, batch=False, ns=h.name)
+            else:
+                m = re.match('^s(\d+)-(\w+)$', h.name)
+                if m is not None:
+                    # node is a world backbone switch
+                    # -> route nodes in the same country through corresponding country switch
+                    # -> route nodes in a different country through that country's backbone switch
+                    country_src = h.get_property('country')
+                    for h_dst in (x for x in self.hosts if x.name.startswith('h')):
+                        country_dst = h_dst.get_property('country')
+                        if country_src == country_dst:
+                            same_country_via = find_connecting_iface(h, next(iter(h_dst.ifaces_non_adm().values())).endpoint.parent)
+                            for ifn, ifaddr in h_dst.ifaces_non_adm().items():
+                                print('route: same country {0} from:{1} to:{2}({3}) via:{4}'.format(country_src, h.name, h_dst.name, ifaddr.ip, same_country_via.name))
+                                h.route(ifaddr.ip, same_country_via.name, batch=False, ns=h.name)
+                        else:
+                            dst_country_gw = find_country_gw(nodes_by_country, country_dst)
+                            dst_country_via = next(iter(x for x in h.ifaces_non_adm().values() if x.endpoint.parent == dst_country_gw))
+                            for ifn, ifaddr in h_dst.ifaces_non_adm().items():
+                                print('route: diff country {0}->{5} from:{1} to:{2}({3}) via:{4}'.format(country_src, h.name, h_dst.name, ifaddr.ip, dst_country_via.name, country_dst))
+                                h.route(ifaddr.ip, dst_country_via.name, batch=False, ns=h.name)
+                else:
+                    raise KeyError('Invalid node name for world_topo routing: {0}'.format(h.name))
+            h.exec_batch_commit()
+        nodes_by_country = self.get_nodes_by_property('country')
+        self.parallel_foreach_host(static_routes_world_topo_for_host, nodes_by_country)
+
+    def static_routes_world_topo_flat(self):
+        def find_country_gw(d, country):
+            return next(iter(x for x in d[country] if x.name.endswith(country)))
+        def find_connecting_iface(h1, h2):
+            for ifn, ifaddr in h1.ifaces_non_adm().items():
+                if ifaddr.endpoint.parent == h2:
+                    return ifaddr
+        # this routing strategy is heavily based on the names of the nodes
+        # make sure that:
+        #   end nodes               -> h{num}
+        #   world backbone switches -> s{num}
+        #   nodes MUST have a country property (cTLD) to route them correctly
+        nodes_by_country = self.get_nodes_by_property('country')
+        for h in self.hosts:
+            ifaces = h.ifaces_non_adm()
+            if h.name.startswith('h'):
+                # end node, must be a leaf: connect to every other node using neighboring switch
+                if len(ifaces.keys()) != 1:
+                    raise ValueError('{0} node is not a leaf'.format(h.name))
+                via = ifaces[next(iter(ifaces.keys()))]
+                h.route('default', via.name, batch=False, ns=h.name) # default gateway
+            else:
+                m = re.match('^s(\d+)$', h.name)
+                if m is not None:
+                    # node is a world backbone switch
+                    # -> route nodes in the same country through corresponding country switch
+                    # -> route nodes in a different country through that country's backbone switch
+                    country_src = h.get_property('country')
+                    for h_dst in (x for x in self.hosts if x.name.startswith('h')):
+                        country_dst = h_dst.get_property('country')
+                        if country_src == country_dst:
+                            same_country_via = find_connecting_iface(h, next(iter(h_dst.ifaces_non_adm().values())).endpoint.parent)
+                            for ifn, ifaddr in h_dst.ifaces_non_adm().items():
+                                print('route: same country {0} from:{1} to:{2}({3}) via:{4}'.format(country_src, h.name, h_dst.name, ifaddr.ip, same_country_via.name))
+                                h.route(ifaddr.ip, same_country_via.name, batch=False, ns=h.name)
+                        else:
+                            dst_country_gw = find_country_gw(nodes_by_country, country_dst)
+                            dst_country_via = next(iter(x for x in h.ifaces_non_adm().values() if x.endpoint.parent == dst_country_gw))
+                            for ifn, ifaddr in h_dst.ifaces_non_adm().items():
+                                print('route: diff country {0}->{5} from:{1} to:{2}({3}) via:{4}'.format(country_src, h.name, h_dst.name, ifaddr.ip, dst_country_via.name, country_dst))
+                                h.route(ifaddr.ip, dst_country_via.name, batch=False, ns=h.name)
+                else:
+                    raise KeyError('Invalid node name for world_topo_flat routing: {0}'.format(h.name))
+            h.exec_batch_commit()
+
+    def build_namespaces_parallel(self):
+        def build_namespace(h):
+            h.ns_hosts()
+            h.static_arp()
+        self.parallel_foreach_host(build_namespace)
+
+    def parallel_foreach_host(self, f, *args):
+        thrds = []
+        for h in self:
+            t = threading.Thread(target=f, args=(h,) + args)
+            t.start()
+            thrds.append(t)
+        for t in thrds:
+            t.join()
+
+    def get_nodes_by_property(self, attr):
+        d = defaultdict(list)
+        for h in self.hosts:
+            try:
+                prop = h.get_property(attr)
+                d[prop].append(h)
+            except KeyError as e:
+                raise KeyError('Node {0} has no property: {1}'.format(h, attr))
+        return d
+    def host_list(self):
+        return [(name, h.default_iface.ip) for name, h in sorted(self.hosts_dict.items(), key=lambda x: x[0]) if h.default_iface is not None]
+    def etchosts(self):
+        return ''.join(['{1}\t{0}\n'.format(*x) for x in self.host_list()])
+    def adm_etchosts(self):
+        return ''.join(['{1}\t{0}-adm\n'.format(*x) for x in self.adm_host.node_list()])
+    def __getitem__(self, key):
+        if key == 'nextRealHost': # nextRealHost is magic item to get host IP from pool
+            #print("getitem called")
+            if self.args and self.args.dry_run:
+                ret = '127.0.0.1' # placeholder
+            else:
+                ret = self.real_hosts.pop(0)
+        elif key == 'hostList':
+            ret = ' '.join(h.name for h in self.hosts)
+        elif key == 'pwd':
+            ret = os.getcwd()
+        else:
+            ret = self.hosts_dict[key]
+        return ret
+    def __iter__(self):
+        for h in self.hosts_dict.values():
+            yield h
+
+class HostPoolSubstitutionDict(dict):
+    def __init__(self, hp, locals=None, extra=None):
+        self.parent = hp
+        kwargs = self.parent.hosts_dict
+        super().__init__(**kwargs)
+        if locals is not None:
+            self.update(locals)
+        if extra is not None:
+            self.update(extra)
+    def __missing__(self, key):
+        #print("missing called")
+        try:
+            return self.parent[key]
+        except KeyError:
+            return '{0}{1}{2}'.format('{', key, '}')
+
+class Interface(object):
+    DEFAULT_NAME = 'eth0'
+    def __init__(self, parent=None):
+        self.parent = parent
+        self.name = self.DEFAULT_NAME
+        self.ip = None
+        self.mask = None
+        self.bcast = None
+        self.mac = None
+        self.latency_class = 1
+        self.endpoint = None
+        self.tc_callback = False
+    def shape(self, *args, **kwargs):
+        dev = self.name
+        if not self.tc_callback and self.parent is not None:
+            # init root TBF
+            self.parent.tcraw('qdisc add dev {0} root handle 1: tbf rate 100mbit burst 15k latency {1}ms'.format(dev, 15*8), **kwargs)
+            # default classid
+            #self.parent.tcraw('class add dev {0} parent 1: classid 1:1 htb rate 100mbit burst 15k'.format(dev), **kwargs)
+            # default filter with low prio
+            #self.parent.tcraw('filter add dev {0} parent 1: protocol ip prio 99 u32 flowid 1:1 match u32 0 0'.format(dev), **kwargs)
+        modifier = 'add' if not self.tc_callback else 'change'
+        #cmd = 'tc qdisc {0} dev {2} parent 1:{1} handle {1}0: netem {3}'.format(modifier, self.latency_class, dev, *args)
+        cmd = 'tc qdisc {0} dev {2} parent 1: handle {1}0: netem {3}'.format(modifier, self.latency_class, dev, *args)
+        try:
+            self.parent.exec_(cmd, **kwargs)
+        except IOError as e:
+            print('Ignoring: {0}'.format(e))
+        #print('tc args: {0}'.format(args))
+        args = args[0].strip().split()
+        if self.parent is not None and not self.tc_callback:
+            # add del callback if parent is set, even if exec_ failed
+            if 'ns' in kwargs and kwargs['ns'] is not None:
+                prefix = 'ip netns exec {0} '.format(kwargs['ns'])
+            else:
+                prefix = ''
+            self.parent.del_cmds.appendleft('{0}tc qdisc del dev {1} root'.format(prefix, dev))
+            self.tc_callback = True
+    def network_addr(self):
+        return IPUtil.network_addr(self.ip, self.mask)
+    def __repr__(self):
+        return str(self)
+    def __str__(self):
+        return '{0}/{1}'.format(self.ip, self.mask)
+    @staticmethod
+    def build(dev, ipmask, mac, parent=None):
+        # FIXME inconsistency: building w/ip,mask vs. ipmask (as str)
+        iface = Interface(parent=parent)
+        iface.name = dev
+        iface.ip, iface.mask = IPUtil.split_ipmask(ipmask)
+        iface.bcast = IPUtil.bcast_addr(iface.ip, iface.mask)
+        iface.mac = mac
+        return iface
+
+class CGroup(object):
+    def __init__(self, name, types, parent=None):
+        self.parent = parent
+        self.name = name
+        # cpuset params
+        self.cfs_period = 100000
+        self.cfs_quota = -1
+        self.shares = 1024
+        #
+        self.types = types
+        self.type_list = types.split(',')
+        controller_name = '{0}:{1}'.format(types, name)
+        self.parent.exec_('cgcreate -g {0}'.format(controller_name))
+        self.parent.del_cmds.append('sleep 1') # FIXME workaround
+        self.parent.del_cmds.append('cgdelete -g {0}'.format(controller_name))
+        if 'cpuset' in self.type_list:
+            numa_node, unused_core = self.parent.real_host.get_unused_core()
+            #print("DEBUG ", numa_node, unused_core, name)
+            self.parent.exec_('cgset -r cpuset.mems={0} {1}'.format(numa_node, name))
+            # init cpuset.mem and cpuset.cpus since debian doesn't do it for us
+            # FIXME maybe initialize using the whole core range if cpu_exclusive==False?
+            self.parent.exec_('cgset -r cpuset.cpus={0} {1}'.format(unused_core, name))
+            if self.parent.args is not None and self.parent.args.cpu_exclusive:
+                self.parent.exec_('cgset -r cpuset.cpu_exclusive=1 {0}'.format(name))
+    def set_cpu_shares(self, shares):
+        self.shares = shares
+        self.parent.exec_('cgset -r cpu.shares={1} {0}'.format(self.name, shares))
+    def set_cfs_period(self, period):
+        self.cfs_period = period
+    def set_cfs_quota(self, quota):
+        self.cfs_quota = quota
+        self.parent.exec_('cgset -r cpu.cfs_period_us={0} {1}'.format(self.cfs_period, self.name))
+        self.parent.exec_('cgset -r cpu.cfs_quota_us={0} {1}'.format(self.cfs_quota, self.name))
+
+class Range(object):
+    def __init__(self, r):
+        self.tokens = r.split('-')
+    def __iter__(self):
+        start = int(self.tokens[0])
+        end = start
+        if len(self.tokens) > 1:
+            end = int(self.tokens[1])
+        for r in range(start, end+1):
+            yield r
+
+class CoreRange(object):
+    def __init__(self, r):
+        self.r = r
+        self.range_tokens = r.split(',')
+        self.iter = iter(self)
+    def get_unused_core(self):
+        return next(self.iter)
+    def __iter__(self):
+        for token in self.range_tokens:
+            for core in Range(token):
+                yield core
+    def __str__(self):
+        return self.r
+    def __repr__(self):
+        return str(self)
+
+class RealHostTopoVhostDummy(object):
+    def exec_(self, cmd):
+        return '''Architecture:          x86_64
+CPU op-mode(s):        32-bit, 64-bit
+Byte Order:            Little Endian
+CPU(s):                4
+On-line CPU(s) list:   0-3
+Thread(s) per core:    2
+Core(s) per socket:    2
+Socket(s):             1
+NUMA node(s):          1
+Vendor ID:             GenuineIntel
+CPU family:            6
+Model:                 58
+Model name:            Intel(R) Core(TM) i7-3537U CPU @ 2.00GHz
+Stepping:              9
+CPU MHz:               817.285
+CPU max MHz:           3100,0000
+CPU min MHz:           800,0000
+BogoMIPS:              4989.10
+Virtualization:        VT-x
+L1d cache:             32K
+L1i cache:             32K
+L2 cache:              256K
+L3 cache:              4096K
+NUMA node0 CPU(s):     0-3
+Flags:                 fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush dts acpi mmx fxsr sse sse2 ss ht tm pbe syscall nx rdtscp lm constant_tsc arch_perfmon pebs bts rep_good nopl xtopology nonstop_tsc aperfmperf eagerfpu pni pclmulqdq dtes64 monitor ds_cpl vmx est tm2 ssse3 cx16 xtpr pdcm pcid sse4_1 sse4_2 x2apic popcnt tsc_deadline_timer xsave avx f16c rdrand lahf_lm epb tpr_shadow vnmi flexpriority ept vpid fsgsbase smep erms xsaveopt dtherm ida arat pln pts
+'''
+
+class RealHostTopoVhostDummyOpteron(object):
+    def exec_(self, cmd):
+        return '''Architecture:          x86_64
+CPU op-mode(s):        32-bit, 64-bit
+Byte Order:            Little Endian
+CPU(s):                64
+On-line CPU(s) list:   0-63
+Thread(s) per core:    2
+Core(s) per socket:    8
+Socket(s):             4
+NUMA node(s):          8
+Vendor ID:             AuthenticAMD
+CPU family:            21
+Model:                 1
+Model name:            AMD Opteron(TM) Processor 6276
+Stepping:              2
+CPU MHz:               1400.000
+CPU max MHz:           2300,0000
+CPU min MHz:           1400,0000
+BogoMIPS:              4599.46
+Virtualization:        AMD-V
+L1d cache:             16K
+L1i cache:             64K
+L2 cache:              2048K
+L3 cache:              6144K
+NUMA node0 CPU(s):     0-7
+NUMA node1 CPU(s):     8-15
+NUMA node2 CPU(s):     16-23
+NUMA node3 CPU(s):     24-31
+NUMA node4 CPU(s):     32-39
+NUMA node5 CPU(s):     40-47
+NUMA node6 CPU(s):     48-55
+NUMA node7 CPU(s):     56-63
+'''
+
+class RealHostTopo(object):
+    '''Parses lscpu information to extract NUMA topology, iterates cores by NUMA core (round-robin)'''
+    def __init__(self, vhost):
+        self.numa_nodes = {}
+        # make up dummy info if dry-run, exec lscpu otherwise
+        self.lscpu = vhost.exec_('lscpu') if vhost != 0 and vhost is not None else RealHostTopoVhostDummyOpteron().exec_('lscpu')
+        self.reset_iter()
+    @staticmethod
+    def __get_key(line):
+        return line.split(':')[0].strip()
+    @staticmethod
+    def __get_value(line):
+        return line.split(':')[-1].strip()
+    def __parse_topo(self, lscpu):
+        lines = lscpu.splitlines()
+        for line in lines:
+            if line.startswith('CPU(s)'):
+                self.cpus = self.__get_value(line)
+            elif line.startswith('On-line CPU(s)'):
+                self.cpu_range = CoreRange(self.__get_value(line))
+            elif line.startswith('NUMA node(s)'):
+                self.numa_node_count = int(self.__get_value(line))
+            elif line.startswith('NUMA'):
+                k = self.__get_key(line)
+                v = self.__get_value(line)
+                numa_node = k.split()[1]
+                self.numa_nodes[numa_node] = CoreRange(v)
+    def get_unused_core(self):
+        return next(self.core_generator)
+    def reset_iter(self):
+        self.__parse_topo(self.lscpu)
+        self.core_generator = iter(self)
+    def __iter__(self):
+        for num in self.cpu_range:
+            for numa_num in range(self.numa_node_count):
+                yield (numa_num, self.numa_nodes['node{0}'.format(numa_num)].get_unused_core())
+
+class RealHost(object):
+    def __init__(self, name, vhost, cpu_exclusive=True):
+        self.name = name
+        self.topo = RealHostTopo(vhost)
+        self.cpu_exclusive = cpu_exclusive
+    def get_unused_core(self):
+        try:
+            core = self.topo.get_unused_core()
+        except StopIteration as e:
+            if self.cpu_exclusive:
+                raise e
+            else:
+                self.topo.reset_iter()
+                core = self.topo.get_unused_core()
+        except Exception as e:
+            traceback.print_exc(file=sys.stdout)
+            raise e
+        #print("DEBUG  get_unused_core ->", core)
+        return core
+
+class RealHostPool(object):
+    host_pool = {}
+    @classmethod
+    def get_real_host(cls, name, vhost=None, cpu_exclusive=True):
+        try:
+            ret = cls.host_pool[name]
+        except KeyError:
+            ret = RealHost(name, vhost, cpu_exclusive=cpu_exclusive)
+            cls.host_pool[name] = ret
+        return ret
+
+class BaseHost(object):
+    MTU = 1500
+    REMOTE_HELPER_DIR = '/tmp/helpers'
+    LOCAL_HELPER_DIR = '/helpers'
+
+    def __init__(self, name, ip, args=None):
+        self.dry_run = args is not None and args.dry_run
+        self.name = name
+        self.ip = ip
+        self.username = None
+        self.con = None
+        self.pool = None
+        self.topo = None
+        self.args = args
+        self.lock = threading.Lock()
+        self.threads = []
+
+        # services
+        self.service_list = []
+
+        # command list to be called on close
+        self.del_cmds = collections.deque()
+        self.pending_stdout = []
+
+        # status
+        self.mtu = None
+        self.tc_callback = False
+        self.mtu_callback = False
+        self.ns_callback = False
+        self.ifaces = {}
+        self.adm_iface = None
+        self.real_default_iface = None
+        # TODO default_iface should be configured per netns
+        self.default_iface = None
+        self.iface_next_num = 0
+
+        # registered helpers
+        self.helpers = []
+
+        self.latency_class = 1 # FIXME status should go to some struct
+
+        # setup connection
+        self.con = self._connect(self.ip) if not self.dry_run else 0
+
+        self.current_exec_batch = None
+
+        # node properties
+        self.properties = {}
+    def set_property(self, name, value):
+        self.properties[name] = value
+    def get_property(self, name):
+        return self.properties[name]
+    def __getattr__(self, name):
+        # getattr shortcut to get iface info using dot notation
+        # FIXME this is not safe if attribute is not in self.ifaces and also not found, maybe use super?
+        def dict_if_not_found(*args, **kwargs):
+            if name in self.ifaces:
+                return self.ifaces[name]
+            else:
+                return getattr(self, name)
+        return dict_if_not_found()
+    def _service(self, cmd, ns=None, **kwargs):
+        name = cmd.split()[0] # 'argv[0]'
+        if name in self.helpers:
+            return self.exec_(cmd, ns=ns, service=True, **kwargs)
+    def _connect(self, hostname, username='root'):
+        dry_run = self.dry_run
+        print('connect: {0}@{1}'.format(username, hostname))
+        client = None
+        if not dry_run:
+            client = paramiko.SSHClient()
+            client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            client.load_system_host_keys()
+            client.connect(hostname, username=username)
+        self.username = username
+        return client
+    def service_pids(self):
+        return self.service_list
+    def new_iface_name(self):
+        name = '{0}veth{1}'.format('{0}-'.format(self.name) if self.args.use_iface_prefix else '', self.iface_next_num)
+        self.iface_next_num += 1
+        return name
+    def init_cgroup(self, cgname, types):
+        self.cgroup = CGroup(cgname, types, parent=self)
+    def cgroup_get(self):
+        return self.cgroup
+    def netns(self, name):
+        self.exec_batch('ip netns add {0}'.format(name))
+        self.exec_batch('ip addr add 127.0.0.1/8 dev lo', ns=name)
+        self.exec_batch('ip link set dev lo up', ns=name)
+        self.exec_batch('mkdir -p /etc/netns/{0}'.format(name))
+        self.exec_batch('touch /etc/netns/{0}/hosts'.format(name))
+        self.exec_batch_commit()
+        self.del_cmds.appendleft('ip netns delete {0}'.format(name))
+        self.del_cmds.appendleft('rm -rf /etc/netns/{0}'.format(name))
+    def veth(self, ns, dev1, dev2, ipmask, is_adm=False):
+        #print(ns, dev1, dev2, ipmask)
+        self.exec_('ip link add link {0} {1} type macvlan mode bridge'.format(dev1, dev2))
+        mac = self.get_mac_address(dev2)
+        iface = Interface.build(dev2, ipmask, mac, parent=self)
+        self.exec_batch('ip link set dev {0} netns {1}'.format(dev2, ns))
+
+        # set address, UP
+        self.exec_batch('ip addr add {0} broadcast {1} dev {2}'.format(ipmask, iface.bcast, dev2), ns=ns)
+        self.exec_batch('ip link set dev {0} up'.format(dev2), ns=ns)
+        if is_adm:
+            # adm interface -> do not reply ARP requests from other interfaces/subnets
+            self.exec_batch('sysctl -w net.ipv4.conf.{0}.arp_ignore=2'.format(dev2), ns=ns)
+            #self.adm_iface = iface
+        else:
+            # disable ARP on normal interfaces
+            self.exec_batch('ip link set dev {0} arp off'.format(dev2), ns=ns)
+
+        # flush ARP table just in case
+        self.exec_batch('ip neigh flush dev {0}'.format(dev2), ns=ns)
+        self.exec_batch_commit()
+
+        self.ifaces[dev2] = iface
+        if is_adm:
+            self.adm_iface = iface
+        else:
+            # default interface if it's the first one
+            if self.default_iface is None:
+                self.default_iface = iface
+            # look up endpoint and create edge in Topo graph
+            iface.endpoint = self.pool.find_endpoint_iface(iface)
+            if iface.endpoint is not None:
+                iface.endpoint.endpoint = iface
+                if self.topo is not None:
+                    self.topo.connect(iface.parent.name, iface.endpoint.parent.name)
+        return iface
+    def lookup_iface_by_addr(self, addr):
+        # FIXME move to class Interface?
+        o = self.exec_('ip addr show')
+        if o is None:
+            # return default interface
+            iface = Interface(parent=self)
+            return iface
+        cur = None
+        iface = None
+        for line in o.splitlines():
+            m = re.match('^\d+: (\w+).*$', line)
+            if m is not None:
+                cur = m.group(1)
+                continue
+            m = re.match('^[\t ]*inet (\d+\.\d+\.\d+\.\d+)/(\d+) .*$', line)
+            if m is not None:
+                assert(cur != None)
+                if m.group(1) == addr:
+                    iface = Interface(parent=self)
+                    iface.name = cur
+                    iface.ip = m.group(1)
+                    iface.mask = int(m.group(2))
+                    m = re.match('^[\t ]*inet (\d+\.\d+\.\d+\.\d+)/(\d+.*) brd (\d+\.\d+\.\d+\.\d+).*$', line)
+                    if m is not None:
+                        iface.bcast = m.group(3)
+                    iface.mac = self.get_mac_address(iface.name)
+                    break
+        return iface
+    def lookup_ip_by_iface(self, iface):
+        # FIXME move to class Interface?
+        o = self.exec_('ip addr show {0}'.format(iface))
+        if o is None:
+            # return default interface
+            iface = Interface(parent=self)
+            return iface
+        for line in o.splitlines():
+            m = re.match('^[\t ]*inet (\d+\.\d+\.\d+\.\d+)/(\d+.*) brd (\d+\.\d+\.\d+\.\d+).*$', line)
+            if m is not None:
+                return m.group(1)
+        return None
+    def default_route(self):
+        o = self.exec_('ip route')
+        if o is not None:
+            for line in o.splitlines():
+                m = re.match('^default via \d+\.\d+\.\d+.\d+ dev (.*?) .*$', line)
+                if m is not None:
+                    return self.lookup_ip_by_iface(m.group(1))
+        return '127.0.0.1'
+    def lookup_route(self, addr, ns=None):
+        o = self.exec_('ip route get {0}'.format(addr), ns=ns)
+        if o is not None:
+            o = o.splitlines()[0]
+            m = re.search('dev (.*?) *src (.*?)$', o)
+            return m.group(1), m.group(2)
+        else:
+            # return dummy data if running in dry-run mode
+            return 'eth0', None
+    def arp(self, cmd, *args, **kwargs):
+        dev, _ = self.lookup_route(args[0], **kwargs)
+        if cmd == 'add':
+            self.exec_batch('ip neigh add {1} lladdr {2} nud permanent dev {0}'.format(dev, *args), **kwargs)
+        #else: TODO
+        if 'ns' not in kwargs:
+            self.del_cmds.append('ip neigh del {0}'.format(args[0]))
+    def tc(self, dev, *args, **kwargs):
+        self.ifaces[dev].shape(*args, **kwargs)
+    def tcraw(self, *args, **kwargs):
+        cmd = 'tc {0}'.format(*args)
+        try:
+            self.exec_(cmd, **kwargs)
+        except IOError as e:
+            print('Ignoring: {0}'.format(e))
+    def route(self, net, dev, batch=True, ns=None):
+        fmt = 'ip route add {0} via {1}'
+        exec_ = self.exec_
+        if batch:
+            exec_ = self.exec_batch
+        exec_(fmt.format(net, self.ifaces[dev].endpoint.ip), ns=ns)
+    def get_mac_address(self, dev, ns=None):
+        mac = None
+        o = self.exec_('ip link show {0}'.format(dev), ns=ns)
+        if o is not None:
+            lines = o.splitlines()
+            if len(lines) > 0:
+                mac = re.match('^.*?ether (.*?) brd.*$', lines[1]).group(1)
+        return mac
+    def set_link(self, dev, key, *args):
+        if self.mtu is None:
+            self.mtu = self._getMTU(dev)
+        cmd1 = 'ip link set dev {0} {1} {2}'.format(dev, key, *args)
+        cmd2 = 'ip route flush cache'
+        try:
+            self.exec_(cmd1)
+            self.exec_(cmd2)
+        except IOError as e:
+            print('Ignoring: {0}'.format(e))
+        if key == 'mtu' and not self.mtu_callback:
+            # add del callback even if exec_ failed
+            self.del_cmds.appendleft('ip link set dev {0} mtu {1}'.format(dev, self.mtu))
+            self.mtu_callback = True
+    # FIXME move to Interface
+    def set_latency(self, node2, dev, *args, **kwargs):
+        if not self.tc_callback:
+            # init root HTB
+            self.tcraw('qdisc add dev {0} root handle 1: htb'.format(dev))
+            # default classid
+            self.tcraw('class add dev {0} parent 1: classid 1:1 htb rate 10mbit'.format(dev))
+            # default filter with low prio
+            self.tcraw('filter add dev {0} parent 1: protocol ip prio 99 u32 flowid 1:1 match u32 0 0'.format(dev))
+            self.latency_class = 2
+            # add del cmd
+            self.del_cmds.appendleft('tc qdisc del dev {0} root'.format(dev))
+            self.tc_callback = True
+        # set filter to node2
+        self.set_latency_inbound(dev, node2.ip, *args)
+        # set inverse filter
+        if 'bidir' in kwargs:
+            node2.set_latency(self, dev, *args)
+    # FIXME move to Interface, unused
+    def set_latency_inbound(self, dev, ip, *args):
+        self.tcraw('class add dev {0} parent 1: classid 1:{1} htb rate 10mbit'.format(dev, self.latency_class))
+        self.tcraw('filter add dev {0} parent 1: protocol ip prio {1} u32 flowid 1:{1} match ip dst {2}'.format(dev, self.latency_class, ip))
+        self.tcraw('qdisc add dev {0} parent 1:{1} handle {1}0: netem {2}'.format(dev, self.latency_class, *args))
+        self.latency_class += 1
+    def sysctl(self, var, value, **kwargs):
+        o = None
+        # if we're changing a non-netns sysctl entry, record original value so that we can restore it later
+        if 'ns' not in kwargs:
+            o = self.exec_('sysctl -n {0}'.format(var), **kwargs)
+        self.exec_('sysctl -w {0}={1}'.format(var, value), **kwargs)
+        if o is not None:
+            self.del_cmds.appendleft('sysctl -w {0}={1}'.format(var, o.rstrip('\n')))
+    def shell(self, **kwargs):
+        dry_run = self.dry_run
+        cmd = "/bin/bash"
+        try:
+            cmd = " su {0} -c {1}".format(kwargs['username'], cmd)
+        except KeyError:
+            pass
+        ns = ""
+        try:
+            ns = ' ip netns exec {0} '.format(kwargs['ns'])
+        except KeyError:
+            pass
+        cmd = 'ssh -tt {0}@{1}{2}{3}'.format(self.username, self.ip, ns, cmd)
+        #print('DEBUG ', cmd)
+        if not dry_run:
+            p = pexpect.pty_spawn.spawn(cmd, env=self.pool.environ())
+            pty_size = shutil.get_terminal_size()
+            p.setwinsize(pty_size[1], pty_size[0])
+            p.interact(chr(29))
+    def build_cmdline(self, cmd, username=None, cgroup=None, ns=None, uts_ns=False, service=False):
+        prefix = ''
+        suffix = ''
+        if service:
+            prefix = 'PATH="{0}":"$PATH" '.format(self.remote_helper_dir)
+            #suffix = ' &'
+        if cgroup:
+            prefix = '{0}cgexec -g {1}:{2} '.format(prefix, self.cgroup.types, self.cgroup.name)
+        if uts_ns:
+            prefix = '{0}unshare -u '.format(prefix)
+        if ns is not None:
+            prefix = '{0}ip netns exec {1} '.format(prefix, ns)
+        if username is not None and self.username == 'root':
+            cmd = "su {0} -c 'cd {1} && ({2})'".format(username, os.getcwd(), cmd)
+        cmd = '{0}{1}{2}'.format(prefix, cmd, suffix)
+        return cmd
+    def exec_batch(self, cmd, username=None, ns=None, uts_ns=False, **kwargs):
+        dry_run = self.dry_run
+        cmd = self.build_cmdline(cmd,
+                username=username,
+                ns=ns,
+                uts_ns=uts_ns,
+                service=False)
+        log_command(self.ip, cmd)
+        if self.con is not None and not dry_run:
+            if self.current_exec_batch is None:
+                self.current_exec_batch = []
+            self.current_exec_batch.append(cmd)
+    def exec_batch_commit(self):
+        dry_run = self.dry_run
+        if self.con is not None and not dry_run:
+            if self.current_exec_batch is None:
+                print('calling exec_batch_commit without a valid command list')
+                return
+            # FIXME unsafe - https://xkcd.com/327/
+            i, o, e = self.con.exec_command(';'.join(self.current_exec_batch))
+            out = o.read().decode('utf-8').rstrip('\n')
+            err = e.read().decode('utf-8')
+            if err:
+                raise IOError('err -> {0}'.format(err))
+            self.current_exec_batch = None
+            return out
+    def exec_(self, cmd, username=None, cgroup=None, ns=None, uts_ns=False, service=False, at=None, **kwargs):
+        dry_run = self.dry_run
+        cmd = self.build_cmdline(cmd,
+                username=username,
+                cgroup=cgroup,
+                ns=ns,
+                uts_ns=uts_ns,
+                service=service)
+        if self.con is not None and not dry_run:
+            def exec_bound():
+                log_command(self.ip, cmd)
+                #print("thread start: {0}".format(time.time()))
+                i, o, e = self.con.exec_command(cmd)
+                if service:
+                    out = o.readline().rstrip('\n')
+                    # service must output PID
+                    if re.match('\d+', out) is None:
+                        raise IOError('service flag set but process output is not a valid PID')
+                    self.del_cmds.appendleft('kill {0}'.format(out))
+                    self.service_list.append(out)
+                    self.pending_stdout.append(o)
+                else:
+                    out = o.read().decode('utf-8').rstrip('\n')
+                    err = e.read().decode('utf-8')
+                    if err:
+                        raise IOError('err -> {0}'.format(err))
+                return out
+            t = run_or_queue(exec_bound, at=at)
+            # queue thread if run_or_queue returns a thread object, should wait on it later
+            if isinstance(t, threading.Thread):
+                self.threads.append(t)
+            else:
+                return t
+        else:
+            log_command(self.ip, cmd)
+    def install_script(self, script, dest):
+        if self.args is not None and self.args.dry_run:
+            return None
+        contents = None
+        if self.local_helper_dir is None:
+            self.local_helper_dir = '.'
+        try:
+            with open(os.path.join(self.local_helper_dir, script), 'r') as f:
+                contents = f.read()
+        except FileNotFoundError:
+            with pkg_resources.open_text('helpers', script) as f:
+                contents = f.read()
+        if contents is not None:
+            self.copy_data(os.path.join(dest, script), contents)
+            self.exec_('chmod +x {0}'.format(os.path.join(dest, script)))
+            self.helpers.append(script)
+    def install_helpers(self):
+        self.local_helper_dir = os.path.dirname(os.path.realpath(sys.argv[0])) + self.LOCAL_HELPER_DIR
+        self.remote_helper_dir = self.REMOTE_HELPER_DIR # FIXME constant or instance member?
+        dest = self.remote_helper_dir
+        self.exec_('mkdir -p {0}'.format(dest))
+        # FIXME helpers should be installed on-demand by user script?
+        self.install_script('ns-sshd', dest)
+        self.del_cmds.appendleft('rm -rf {0}'.format(dest))
+    def _getMTU(self, dev):
+        m = self.exec_('cat /sys/class/net/{0}/mtu'.format(dev))
+        # 'sensible defaults'
+        return m if m is not None else self.MTU
+    def copy_data(self, fname, contents, **kwargs):
+            self.exec_('''cat > {1} <<'EOFSetupTopo'
+{0}EOFSetupTopo
+                '''.format(contents, fname), **kwargs)
+
+    def ns_hosts(self, ns=None):
+        if ns is None:
+            ns = self.name
+        if self.pool is not None:
+            self.copy_data('/etc/netns/{0}/hosts'.format(ns),
+                    self.pool.etchosts(),
+                    ns=ns)
+    def static_arp(self, ns=None):
+        if ns is None:
+            ns = self.name
+        if self.pool is not None:
+            # add ARP entries for every endpoint
+            for if1 in self.ifaces.values():
+                if2 = if1.endpoint
+                if if2 is not None:
+                    self.arp('add', if2.ip, if2.mac, ns=ns)
+            self.exec_batch_commit()
+    def static_routes_tree_only(self, ns=None):
+        if ns is None:
+            ns = self.name
+        if self.pool is not None:
+            localnets = set(IPUtil.join_ipmask(IPUtil.network_addr(x.ip, x.mask), x.mask) for x in self.ifaces.values())
+            #print('localnets: {0}'.format(localnets))
+            for if1 in self.ifaces.values():
+                remotenets = self.visit_neighbors(if1)
+                for r in remotenets:
+                    if r not in localnets:
+                        debug_route(self, r, if1)
+                        self.route(r, if1.name, ns=ns)
+            self.exec_batch_commit()
+    def visit_neighbors(self, if0):
+        visited = set([])
+        nets = set([])
+        if if0.endpoint is None:
+            return nets
+        assert(if0.endpoint.parent is not None)
+        pending = collections.deque()
+        #print('start: add {0}'.format(if0.endpoint.parent.name))
+        pending.append(if0.endpoint.parent)
+        visited.add(if0.parent)
+        # visit nodes using DFS
+        while len(pending) > 0:
+            n = pending.pop()
+            visited.add(n)
+            for i in n.ifaces.values():
+                if i.endpoint != if0:
+                    nets.add(IPUtil.join_ipmask(IPUtil.network_addr(i.ip, i.mask), i.mask))
+                    if i.endpoint is not None and i.endpoint.parent not in visited:
+                        pending.append(i.endpoint.parent)
+                        #print('add {0}'.format(i.endpoint.parent.name))
+        #print(nets)
+        return nets
+    def ifaces_non_adm(self):
+        return {k: v for k, v in self.ifaces.items() if self.adm_iface is None or k != self.adm_iface.name}
+    def wait(self):
+        for t in self.threads:
+            t.join()
+        self.threads = []
+    def close(self):
+        print('del:')
+        #print('DEBUG: ', self.del_cmds)
+        # wait on pending threads
+        self.wait()
+        # restore network state for host
+        for cmd in self.del_cmds:
+            self.exec_batch(cmd)
+        try:
+            self.exec_batch_commit()
+        except IOError as e:
+            print('ignoring -> {0}'.format(e))
+        # open stdout channels due to initialized services must be closed
+        # otherwise, paramiko won't shutdown properly
+        for o in self.pending_stdout:
+            o.channel.transport.close()
+        if self.con:
+            self.con.close()
+
+class AdminHost(BaseHost):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        # setup adm NS
+        self.netns(self.name)
+
+        # default interface
+        self.real_default_iface = self.lookup_iface_by_addr(self.ip)
+
+        # reachable nodes
+        self.adm_endpoints = []
+
+    def add_host(self, iface):
+        iface.endpoint = self.default_iface
+        self.adm_endpoints.append(iface)
+
+    def node_list(self):
+        #print('DEBUG  self.adm_endpoints', [x.ip for x in self.adm_endpoints])
+        return [(x.parent.name, x.ip) for x in self.adm_endpoints]
+
+    def ns_hosts(self, ns=None):
+        if ns is None:
+            ns = self.name
+        if self.pool is not None:
+            self.copy_data('/etc/netns/{0}/hosts'.format(ns),
+                    self.pool.adm_etchosts(),
+                    ns=ns)
+
+class Host(BaseHost):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self.install_helpers()
+        self._setup_real_host()
+
+        # default cgroup
+        self.init_cgroup(self.name, 'cpu,cpuset')
+
+        # setup default NS
+        self.netns(self.name)
+
+        # enable IP forwarding in NS
+        self.sysctl('net.ipv4.ip_forward', 1, ns=self.name)
+
+        # enable ssh
+        self._service('ns-sshd {0}'.format(self.name),
+                cgroup=self.cgroup.name,
+                uts_ns=True,
+                ns=self.name)
+
+    def _setup_real_host(self):
+        self.real_host = RealHostPool.get_real_host(self.ip,
+                self if not self.dry_run else None,
+                cpu_exclusive=self.args.cpu_exclusive if self.args else True)
+        # get default interface (ie. self.ip interface)
+        self.real_default_iface = self.lookup_iface_by_addr(self.ip)
+
+def _runxterm():
+    os.system('/usr/bin/xterm')
+
+def build_args(str_args):
+    argv = str_args.split()
+    d = {}
+    for k, v in (x.split('=') for x in argv):
+        d[k.strip()] = v.strip()
+    return d
+
+class char_range(object):
+    def __init__(self, n0, n1, n2=None):
+        self.start = ord(n0)
+        self.end = ord(n1)
+        self.step = n2
+        if n2 is None:
+            self.step = 1
+        else:
+            self.step = int(self.step)
+    def __iter__(self):
+        for c in range(self.start, self.end+1, self.step): # FIXME not really consistant, should be self.end (but then [A..Z) would spec [A..Y])
+            yield(chr(c))
+
+def build_range(str_range):
+    m = re.match('^(\w+)\.\.(\w+)(\.\.(\d+)|)$', str_range)
+    r = range
+    if m is None:
+        m = re.match('^\[([0-9.]+(,( |)|))*\]$', str_range)
+        return r(0, 0) if m is None else eval(str_range)
+    try:
+        start = int(m.group(1))
+    except ValueError:
+        start = m.group(1)
+        r = char_range
+    try:
+        end = int(m.group(2))
+    except ValueError:
+        end = m.group(2)
+        assert r is char_range
+    if len(m.group(3)) == 0:
+        return r(start, end)
+    else:
+        step = int(m.group(4))
+        return r(start, end, step)
+
+def build_link_list(*args):
+    ll = []
+    for a in args:
+        ll.append(tuple([a.strip() for a in a.split(',')]))
+    return ll
+
+def parse_locals(args):
+    return {k: v for k, v in [x[0].split('=') for x in args]} if args is not None else {}
+
+class ExecutionEnvironment(object):
+    def __init__(self, topo, hp, locals={}, args=None):
+        self.topo = topo
+        self.hp = hp
+
+        self.bound_queue = []
+        self.bound_setup = None
+        self.inside_for = False
+        self.nest_level = 1
+
+        self.locals = locals
+        self.args = args
+
+    def exec_(self, line, vars=None):
+        lan0 = self.hp
+        # ignore comments or empty lines
+        if re.match('[\t ]*#.*$', line) is not None:
+            return False
+        if re.match('^[\t ]*$', line) is not None:
+            return False
+        cmd = line.rstrip('\n')
+
+        #print("debug: {0}".format(cmd))
+        # sanity check
+        cmd_end = re.match('[\t]*end for$', cmd)
+        assert(cmd_end is None or self.inside_for)
+
+        # resolve for
+        if self.inside_for:
+            cmd_end = re.match('[\t ]*end for$', cmd)
+            if cmd_end is not None and self.nest_level == 1:
+                bound_var, range_expr = self.bound_setup
+                if vars is None:
+                    vars = {}
+                for n in build_range(range_expr):
+                    vars.update({bound_var:n})
+                    e = ExecutionEnvironment(self.topo, self.hp, locals=self.locals.copy(), args=self.args)
+                    for bound_cmd in self.bound_queue:
+                        e.exec_(bound_cmd, vars=vars)
+                self.bound_queue = []
+                self.bound_setup = None
+                self.inside_for = False
+            elif cmd_end is not None:
+                self.nest_level -= 1
+                self.bound_queue.append(line)
+                #print("self.nest_level: {0}".format(self.nest_level))
+            else:
+                #print("queue: {0}".format(cmd), file=sys.stderr)
+                cmd_for = re.match('^[\t ]*for (.*?) in (.*?) do$', cmd)
+                if cmd_for is not None:
+                    self.nest_level += 1
+                    #print("self.nest_level: {0}".format(self.nest_level))
+                self.bound_queue.append(line)
+            return True
+
+        # match commands without substitutions
+        cmd_for = re.match('^[\t ]*for (.*?) in (.*?) do$', cmd)
+        if cmd_for is not None:
+            #print("multi-line for")
+            bound_var = cmd_for.group(1)
+            # range could depend on previously bound variables or experiment data
+            range_expr = cmd_for.group(2).format_map(HostPoolSubstitutionDict(self.hp, locals=self.locals, extra=vars))
+            self.bound_setup = (bound_var, range_expr)
+            #print("bound_setup: {0}".format(self.bound_setup))
+            self.inside_for = True
+            return True
+        cmd_for = re.match('^[\t ]*for (.*?) in (.*?) do (.*)$', cmd)
+        if cmd_for is not None:
+            #print("one-liner for")
+            bound_var = cmd_for.group(1)
+            # range could depend on previously bound variables or experiment data
+            range_expr = cmd_for.group(2).format_map(HostPoolSubstitutionDict(self.hp, locals=self.locals, extra=vars))
+            bound_cmd = cmd_for.group(3)
+            for n in build_range(range_expr):
+                if vars is None:
+                    vars = {}
+                vars.update({bound_var:n})
+                self.exec_(bound_cmd, vars=vars)
+            return True
+
+        # replace placeholders using hostpool info and scoped vars
+        cmd = cmd.format_map(HostPoolSubstitutionDict(self.hp, locals=self.locals, extra=vars))
+
+        # match command
+        cmd_include = re.match('^[\t ]*include ([^ ]+)$', cmd)
+        if cmd_include is not None:
+            include_path = cmd_include.group(1)
+            with open(include_path, 'r') as f:
+                for incl_line in f:
+                    #print(incl_line, file=sys.stderr)
+                    self.exec_(incl_line, vars=vars)
+            return True
+        cmd_def = re.match('^[\t ]*def ([A-Za-z_][0-9A-Za-z_-]*)$', cmd)
+        if cmd_def is not None:
+            h = Host(cmd_def.group(1), lan0['nextRealHost'], args=self.args)
+            lan0.add_host(h)
+            return True
+        cmd_def = re.match('^[\t ]*def ([A-Za-z_][0-9A-Za-z_-]*) (\d+\.\d+\.\d+\.\d+)$', cmd)
+        if cmd_def is not None:
+            h = Host(*cmd_def.groups(), args=self.args)
+            lan0.add_host(h)
+            return True
+        cmd_let = re.match('^[\t ]*let ([A-Za-z_][0-9A-Za-z_-]*) (.*)$', cmd)
+        if cmd_let is not None:
+            self.locals[cmd_let.group(1)] = cmd_let.group(2)
+            return True
+        cmd_netns = re.match('^[\t ]*netns ([A-Za-z_][0-9A-Za-z_-]*) ([A-Za-z_][0-9A-Za-z_-]*)$', cmd)
+        if cmd_netns is not None:
+            lan0.find_host(cmd_netns.group(1)).netns(cmd_netns.group(2))
+            return True
+        cmd_veth = re.match('^[\t ]*veth ([A-Za-z_][0-9A-Za-z_-]*) netns ([A-Za-z_][0-9A-Za-z_-]*) link ([A-Za-z_][0-9A-Za-z_-]*) dev ([A-Za-z_][0-9A-Za-z_-]*) ip (.*)$', cmd)
+        if cmd_veth is not None:
+            lan0.find_host(cmd_veth.group(1)).veth(cmd_veth.group(2),
+                    cmd_veth.group(3),
+                    cmd_veth.group(4),
+                    cmd_veth.group(5))
+            return True
+        #cmd_arp = re.match('^[\t ]*arp ([A-Za-z_][0-9A-Za-z_-]*) netns ([A-Za-z_][0-9A-Za-z_-]*) ([A-Za-z_][0-9A-Za-z_-]*) (.*)$', cmd)
+        #if cmd_arp is not None:
+        #    lan0.find_host(cmd_arp.group(1)).arp(
+        #            cmd_arp.group(3),
+        #            *cmd_arp.group(4).split(),
+        #            ns=cmd_arp.group(2))
+        #    return True
+        cmd_connect = re.match('^[\t ]*connect (.*)$', cmd)
+        if cmd_connect is not None:
+            lan0.connect(*cmd_connect.group(1).split())
+            return True
+
+        # FIXME merge these
+        cmd_set = re.match('^[\t ]*set-delay at=([0-9.]+\d*) \[(.*?)\] (.*)$', cmd)
+        if cmd_set is not None:
+            link_list = build_link_list(*cmd_set.group(2).split())
+            for h in link_list:
+                lan0.set_delay(h[0], h[1], *cmd_set.group(3).split(), at=cmd_set.group(1))
+            return True
+        cmd_set = re.match('^[\t ]*set-delay \[(.*?)\] (.*)$', cmd)
+        if cmd_set is not None:
+            link_list = build_link_list(*cmd_set.group(1).split())
+            for h in link_list:
+                lan0.set_delay(h[0], h[1], *cmd_set.group(2).split())
+            return True
+        cmd_set = re.match('^[\t ]*set-delay at=([0-9.]+\d*) all (.*)$', cmd)
+        if cmd_set is not None:
+            for h1, h2 in lan0.link_iter():
+                lan0.set_delay(h1, h2, *cmd_set.group(2).split(), at=cmd_set.group(1))
+            return True
+        cmd_set = re.match('^[\t ]*set-delay at=([0-9.]+\d*) (.*)$', cmd)
+        if cmd_set is not None:
+            lan0.set_delay(*cmd_set.group(2).split(), at=cmd_set.group(1))
+            return True
+        cmd_set = re.match('^[\t ]*set-delay all (.*)$', cmd)
+        if cmd_set is not None:
+            for h1, h2 in lan0.link_iter():
+                lan0.set_delay(h1, h2, *cmd_set.group(1).split())
+            return True
+        cmd_set = re.match('^[\t ]*set-delay (.*)$', cmd)
+        if cmd_set is not None:
+            lan0.set_delay(*cmd_set.group(1).split())
+            return True
+
+        # FIXME merge these
+        cmd_set = re.match('^[\t ]*set-bandwidth at=([0-9.]+\d*) \[(.*?)\] (.*)$', cmd)
+        if cmd_set is not None:
+            link_list = build_link_list(*cmd_set.group(2).split())
+            for h in link_list:
+                lan0.set_bandwidth(h[0], h[1], *cmd_set.group(3).split(), at=cmd_set.group(1))
+            return True
+        cmd_set = re.match('^[\t ]*set-bandwidth \[(.*?)\] (.*)$', cmd)
+        if cmd_set is not None:
+            link_list = build_link_list(*cmd_set.group(1).split())
+            for h in link_list:
+                lan0.set_bandwidth(h[0], h[1], *cmd_set.group(2).split())
+            return True
+        cmd_set = re.match('^[\t ]*set-bandwidth at=([0-9.]+\d*) all (.*)$', cmd)
+        if cmd_set is not None:
+            for h1, h2 in lan0.link_iter():
+                lan0.set_bandwidth(h1, h2, *cmd_set.group(2).split(), at=cmd_set.group(1))
+            return True
+        cmd_set = re.match('^[\t ]*set-bandwidth at=([0-9.]+\d*) (.*)$', cmd)
+        if cmd_set is not None:
+            lan0.set_bandwidth(*cmd_set.group(2).split(), at=cmd_set.group(1))
+            return True
+        cmd_set = re.match('^[\t ]*set-bandwidth all (.*)$', cmd)
+        if cmd_set is not None:
+            for h1, h2 in lan0.link_iter():
+                lan0.set_bandwidth(h1, h2, *cmd_set.group(1).split())
+            return True
+        cmd_set = re.match('^[\t ]*set-bandwidth (.*)$', cmd)
+        if cmd_set is not None:
+            lan0.set_bandwidth(*cmd_set.group(1).split())
+            return True
+
+        # cgroups
+        cmd_cgroup = re.match('^[\t ]*cgroup-set-cpu-shares ([A-Za-z_][0-9A-Za-z_-]*) (\d+)$', cmd)
+        if cmd_cgroup is not None:
+            lan0.find_host(cmd_cgroup.group(1)).cgroup_get().set_cpu_shares(int(cmd_cgroup.group(2)))
+            return True
+        cmd_cgroup = re.match('^[\t ]*cgroup-set-cfs-period ([A-Za-z_][0-9A-Za-z_-]*) (\d+)$', cmd)
+        if cmd_cgroup is not None:
+            lan0.find_host(cmd_cgroup.group(1)).cgroup_get().set_cfs_period(int(cmd_cgroup.group(2)))
+            return True
+        cmd_cgroup = re.match('^[\t ]*cgroup-set-cfs-quota ([A-Za-z_][0-9A-Za-z_-]*) (\d+)$', cmd)
+        if cmd_cgroup is not None:
+            lan0.find_host(cmd_cgroup.group(1)).cgroup_get().set_cfs_quota(int(cmd_cgroup.group(2)))
+            return True
+
+        cmd_tc = re.match('^[\t ]*tc ([A-Za-z_][0-9A-Za-z_-]*) dev ([A-Za-z_][0-9A-Za-z_-]*) (.*)$', cmd)
+        if cmd_tc is not None:
+            lan0.find_host(cmd_tc.group(1)).tc(cmd_tc.group(2), cmd_tc.group(3))
+            return True
+        cmd_tc = re.match('^[\t ]*tc ([A-Za-z_][0-9A-Za-z_-]*) netns ([A-Za-z_][0-9A-Za-z_-]*) dev ([A-Za-z_][0-9A-Za-z_-]*) (.*)$', cmd)
+        if cmd_tc is not None:
+            lan0.find_host(cmd_tc.group(1)).tc(cmd_tc.group(3), cmd_tc.group(4), ns=cmd_tc.group(2))
+            return True
+        cmd_tc = re.match('^[\t ]*tcraw ([A-Za-z_][0-9A-Za-z_-]*) (.*)$', cmd)
+        if cmd_tc is not None:
+            lan0.find_host(cmd_tc.group(1)).tcraw(cmd_tc.group(2))
+            return True
+        cmd_set = re.match('^[\t ]*set-link ([A-Za-z_][0-9A-Za-z_-]*) dev ([A-Za-z_][0-9A-Za-z_-]*) ([A-Za-z_][0-9A-Za-z_-]*) (.*)$', cmd)
+        if cmd_set is not None:
+            lan0.find_host(cmd_set.group(1)).set_link(cmd_set.group(2), cmd_set.group(3), cmd_set.group(4))
+            return True
+        cmd_set = re.match('^[\t ]*set-latency ([A-Za-z_][0-9A-Za-z_-]*) ([A-Za-z_][0-9A-Za-z_-]*) dev ([A-Za-z_][0-9A-Za-z_-]*) netem (.*)$', cmd)
+        if cmd_set is not None:
+            lan0.find_host(cmd_set.group(1)).set_latency(
+                    lan0.find_host(cmd_set.group(2)),
+                    cmd_set.group(3),
+                    cmd_set.group(4),
+                    bidir=True)
+            return True
+        cmd_set = re.match('^[\t ]*set-node-property ([A-Za-z_][0-9A-Za-z_-]*) ([A-Za-z_][0-9A-Za-z_-]*) ([0-9A-Za-z_.-]+)$', cmd)
+        if cmd_set is not None:
+            lan0.find_host(cmd_set.group(1)).set_property(
+                    cmd_set.group(2),
+                    cmd_set.group(3))
+            return True
+        cmd_xterm = re.match('^[\t ]*xterm$', cmd)
+        if cmd_xterm is not None:
+            print('launching xterm...')
+            _runxterm()
+            return True
+        cmd_shell = re.match('^[\t ]*shell$', cmd)
+        if cmd_shell is not None:
+            print('launching shell...')
+            lan0.shell()
+            return True
+        cmd_shell = re.match('^[\t ]*shelladm$', cmd)
+        if cmd_shell is not None:
+            if lan0.args.use_adm_ns:
+                print('launching adm shell...')
+                lan0.adm_host.shell(ns='adm')
+            else:
+                print('adm disabled, skipping command: shelladm')
+            return True
+        cmd_shell = re.match('^[\t ]*shell ([A-Za-z_][0-9A-Za-z_-]*)(.*|$)', cmd)
+        if cmd_shell is not None:
+            print('launching shell...')
+            lan0.find_host(cmd_shell.group(1)).shell(**build_args(cmd_shell.group(2).strip()))
+            return True
+        cmd_run = re.match('^[\t ]*run ([A-Za-z_][0-9A-Za-z_-]*) netns ([A-Za-z_][0-9A-Za-z_-]*) (.*)$', cmd)
+        if cmd_run is not None:
+            lan0.find_host(cmd_run.group(1)).exec_(cmd_run.group(3), ns=cmd_run.group(2))
+            return True
+        cmd_run = re.match('^[\t ]*run ([A-Za-z_][0-9A-Za-z_-]*) (.*)$', cmd)
+        if cmd_run is not None:
+            lan0.find_host(cmd_run.group(1)).exec_(cmd_run.group(2))
+            return True
+        cmd_run = re.match('^[\t ]*runas ([A-Za-z_][0-9A-Za-z_-]*) netns ([A-Za-z_][0-9A-Za-z_-]*) ([A-Za-z_][0-9A-Za-z_-]*) (.*)$', cmd)
+        if cmd_run is not None:
+            try:
+                lan0.find_host(cmd_run.group(1)).exec_(cmd_run.group(4), username=cmd_run.group(3), ns=cmd_run.group(2))
+            except IOError as e:
+                print('Ignoring: {0}'.format(e))
+            return True
+        #cmd_run = re.match('^[\t ]*runas ([A-Za-z_][0-9A-Za-z_-]*) cgroup ([A-Za-z_][0-9A-Za-z_-]*) netns ([A-Za-z_][0-9A-Za-z_-]*) ([A-Za-z_][0-9A-Za-z_-]*) (.*)$', cmd)
+        #if cmd_run is not None:
+        #    try:
+        #        lan0.find_host(cmd_run.group(1)).exec_(cmd_run.group(5), username=cmd_run.group(4), cgroup=cmd_run.group(2), ns=cmd_run.group(3))
+        #    except IOError as e:
+        #        print('Ignoring: {0}'.format(e))
+        #    return True
+        cmd_run = re.match('^[\t ]*runas ([A-Za-z_][0-9A-Za-z_-]*) ([A-Za-z_][0-9A-Za-z_-]*) (.*)$', cmd)
+        if cmd_run is not None:
+            try:
+                lan0.find_host(cmd_run.group(1)).exec_(cmd_run.group(3), username=cmd_run.group(2))
+            except IOError as e:
+                print('Ignoring: {0}'.format(e))
+            return True
+        cmd_run = re.match('^[\t ]*runadm (.*)$', cmd)
+        if cmd_run is not None:
+            if lan0.args.use_adm_ns:
+                lan0.adm_host.exec_(cmd_run.group(1), ns=lan0.adm_host.name)
+            else:
+                print('adm disabled, skipping command: runadm')
+            return True
+        #cmd_route = re.match('^[\t ]*route ([A-Za-z_][0-9A-Za-z_-]*) netns ([A-Za-z_][0-9A-Za-z_-]*) ([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+) via ([A-Za-z_][0-9A-Za-z_-]*)$', cmd)
+        #if cmd_route is not None:
+        #    lan0.find_host(cmd_route.group(1)).route(cmd_route.group(3), cmd_route.group(4), ns=cmd_route.group(2))
+        #    return True
+        cmd_sysctl = re.match('^[\t ]*sysctl ([A-Za-z_][0-9A-Za-z_-]*) (.*?) ([A-Za-z_][0-9A-Za-z_-]*)$', cmd)
+        if cmd_sysctl is not None:
+            lan0.find_host(cmd_sysctl.group(1)).sysctl(cmd_sysctl.group(2), cmd_sysctl.group(3))
+            return True
+        cmd_service = re.match('^[\t ]*service ([A-Za-z_][0-9A-Za-z_-]*) netns ([A-Za-z_][0-9A-Za-z_-]*) (.*)$', cmd)
+        if cmd_service is not None:
+            lan0.find_host(cmd_service.group(1)).exec_(cmd_service.group(3), ns=cmd_service.group(2), service=True)
+            return True
+        cmd_build_network = re.match('^[\t ]*build-network$', cmd)
+        if cmd_build_network is not None:
+            # FIXME hide representation
+            if lan0.adm_host:
+                lan0.adm_host.ns_hosts()
+            lan0.build_namespaces_parallel()
+            if lan0.args.routing_algo == 'shortest_path':
+                lan0.static_routes()
+            elif lan0.args.routing_algo == 'tree_subnets':
+                for h in lan0:
+                    h.static_routes_tree_only()
+            elif lan0.args.routing_algo == 'world_topo':
+                lan0.static_routes_world_topo()
+            elif lan0.args.routing_algo == 'world_topo_flat':
+                lan0.static_routes_world_topo_flat()
+            else:
+                return False
+            return True
+        cmd_wait = re.match('^[\t ]*waitall$', cmd)
+        if cmd_wait is not None:
+            lan0.waitall()
+            return True
+        cmd_save_graph = re.match('^[\t ]*save-graph($| )(.*)$', cmd)
+        if cmd_save_graph is not None:
+            self.topo.save(cmd_save_graph.group(2))
+            return True
+        raise SyntaxError(cmd)
+        return False
+
+if __name__ == '__main__':
+    ap = argparse.ArgumentParser(description='Setup Random Topology on Commodity Hardware (SherlockFog)')
+    ap.add_argument('topology',
+            metavar='TOPO',
+            type=str,
+            help='Topology script')
+    ap.add_argument('--dry-run',
+            type=lambda x: bool(distutils.util.strtobool(x)),
+            const=True,
+            nargs='?',
+            help='Dry-run (do not connect, build topology locally)')
+    ap.add_argument('--real-host-list',
+            type=str,
+            action='store',
+            nargs='?',
+            help='Pool of IPs to assign nodes to (use {nextRealHost})')
+    ap.add_argument('-D', '--define',
+            action='append',
+            nargs='+',
+            help='Define key=value in execution context')
+    ap.add_argument('--base-prefix',
+            type=str,
+            action='store',
+            nargs='?',
+            help='Base network prefix for namespace IPs (CIDR notation)')
+    ap.add_argument('--base-adm-prefix',
+            type=str,
+            action='store',
+            nargs='?',
+            help='Base prefix for administrative network (CIDR notation)')
+    ap.add_argument('--use-iface-prefix',
+            type=lambda x: bool(distutils.util.strtobool(x)),
+            const=True,
+            nargs='?',
+            help='Use node prefix for virtual interface names (default: %(default)s)')
+    ap.add_argument('--node-name-prefix',
+            type=str,
+            action='store',
+            nargs='?',
+            help='Define node name prefix (default: %(default)s{num})')
+    ap.add_argument('--use-adm-ns',
+            type=lambda x: bool(distutils.util.strtobool(x)),
+            const=True,
+            nargs='?',
+            help='Setup administrative private network')
+    ap.add_argument('--routing-algo',
+            type=str,
+            choices=['shortest_path','tree_subnets','world_topo','world_topo_flat'],
+            nargs='?',
+            help='Set routing algorithm (default: %(default)s)')
+    ap.add_argument('--adm-iface-addr',
+            type=str,
+            action='store',
+            nargs='?',
+            help="Outgoing address for administrative network (default: IP of default route's interface)")
+    ap.add_argument('--cpu-exclusive',
+            type=lambda x: bool(distutils.util.strtobool(x)),
+            const=True,
+            nargs='?',
+            help='Setup exclusive access to a single CPU core for each virtual host (default: %(default)s)')
+    ap.set_defaults(node_name_prefix='n',
+            base_prefix='10.67.0.0/16',
+            base_adm_prefix='10.68.0.0/16',
+            use_adm_ns=False,
+            use_iface_prefix=False,
+            routing_algo='shortest_path',
+            cpu_exclusive=True,
+            adm_iface_addr=None)
+    args = ap.parse_args()
+    #print("DEBUG ", args)
+
+    locals = parse_locals(args.define)
+
+    topo0 = Topo()
+
+    if args.adm_iface_addr is None:
+        # FIXME this requires being able to ssh as root w/o password
+        # we should have a local Host specialization that doesn't use ssh
+        # even more so considering that we throw the host away right afterwards
+        h = BaseHost('dummy',
+                '127.0.0.1',
+                args=args)
+        args.adm_iface_addr = h.default_route()
+        h.close()
+        #print("Setting default route to", args.adm_iface_addr)
+
+    lan0 = HostPool('lan0',
+            base=args.base_prefix,
+            use_adm=args.use_adm_ns,
+            args=args)
+    lan0.topo = topo0
+
+    e = ExecutionEnvironment(topo0, lan0, locals=locals, args=args)
+
+    # load host pool IP list
+    if args.real_host_list:
+        rhl = None
+        to_close = False
+        if args.real_host_list == '-':
+            rhl = sys.stdin
+        else:
+            rhl = open(args.real_host_list, 'r')
+            to_close = True
+        for x in rhl:
+            x = x.rstrip('\n')
+            if len(x) > 0:
+                lan0.add_real_host(x)
+        if to_close:
+            rhl.close()
+
+    # exec commands in topology script
+    try:
+        with open(args.topology, 'r') as f:
+            for line in f:
+                e.exec_(line)
+    except IOError as exc:
+        print('err -> {0}'.format(exc), file=sys.stderr)
+    finally:
+        lan0.close()

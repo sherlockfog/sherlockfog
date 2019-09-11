@@ -1,0 +1,16 @@
+def n0
+def n1
+
+let baseLat 0.2
+
+##
+connect n0 n1 {baseLat}ms
+
+##
+build-network
+
+for lat in 10..51..10 do
+	set-delay at={lat} n0 n1 {lat}ms
+end for
+
+runas n0 netns n0 mgeier ping -c 60 -i 1 {n1.default_iface.ip} 2>&1 > ping_output.txt

@@ -1,0 +1,79 @@
+# vars
+let baseLat 0.2
+let graphSize 64
+
+# nodes
+for n in 0..{graphSize} do def n{n} {nextRealHost}
+# center
+def n64 {nextRealHost}
+
+# edges
+connect n64 n0 {baseLat}ms
+connect n64 n1 {baseLat}ms
+connect n64 n2 {baseLat}ms
+connect n64 n3 {baseLat}ms
+connect n64 n4 {baseLat}ms
+connect n64 n5 {baseLat}ms
+connect n64 n6 {baseLat}ms
+connect n64 n7 {baseLat}ms
+connect n64 n8 {baseLat}ms
+connect n64 n9 {baseLat}ms
+connect n64 n10 {baseLat}ms
+connect n64 n11 {baseLat}ms
+connect n64 n12 {baseLat}ms
+connect n64 n13 {baseLat}ms
+connect n64 n14 {baseLat}ms
+connect n64 n15 {baseLat}ms
+connect n64 n16 {baseLat}ms
+connect n64 n17 {baseLat}ms
+connect n64 n18 {baseLat}ms
+connect n64 n19 {baseLat}ms
+connect n64 n20 {baseLat}ms
+connect n64 n21 {baseLat}ms
+connect n64 n22 {baseLat}ms
+connect n64 n23 {baseLat}ms
+connect n64 n24 {baseLat}ms
+connect n64 n25 {baseLat}ms
+connect n64 n26 {baseLat}ms
+connect n64 n27 {baseLat}ms
+connect n64 n28 {baseLat}ms
+connect n64 n29 {baseLat}ms
+connect n64 n30 {baseLat}ms
+connect n64 n31 {baseLat}ms
+connect n64 n32 {baseLat}ms
+connect n64 n33 {baseLat}ms
+connect n64 n34 {baseLat}ms
+connect n64 n35 {baseLat}ms
+connect n64 n36 {baseLat}ms
+connect n64 n37 {baseLat}ms
+connect n64 n38 {baseLat}ms
+connect n64 n39 {baseLat}ms
+connect n64 n40 {baseLat}ms
+connect n64 n41 {baseLat}ms
+connect n64 n42 {baseLat}ms
+connect n64 n43 {baseLat}ms
+connect n64 n44 {baseLat}ms
+connect n64 n45 {baseLat}ms
+connect n64 n46 {baseLat}ms
+connect n64 n47 {baseLat}ms
+connect n64 n48 {baseLat}ms
+connect n64 n49 {baseLat}ms
+connect n64 n50 {baseLat}ms
+connect n64 n51 {baseLat}ms
+connect n64 n52 {baseLat}ms
+connect n64 n53 {baseLat}ms
+connect n64 n54 {baseLat}ms
+connect n64 n55 {baseLat}ms
+connect n64 n56 {baseLat}ms
+connect n64 n57 {baseLat}ms
+connect n64 n58 {baseLat}ms
+connect n64 n59 {baseLat}ms
+connect n64 n60 {baseLat}ms
+connect n64 n61 {baseLat}ms
+connect n64 n62 {baseLat}ms
+connect n64 n63 {baseLat}ms
+
+set-bandwidth all 100mbps
+
+# build
+build-network

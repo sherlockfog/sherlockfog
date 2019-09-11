@@ -1,0 +1,77 @@
+# vars
+let baseLat 0.2
+let graphSize 64
+let edgeClusters [n5,n30 n5,n37 n5,n53 n5,n60]
+
+# nodes
+for n in 0..{graphSize} do def n{n} {nextRealHost}
+
+# edges
+connect n0 n2 {baseLat}ms
+connect n0 n4 {baseLat}ms
+connect n1 n33 {baseLat}ms
+connect n1 n2 {baseLat}ms
+connect n1 n3 {baseLat}ms
+connect n1 n40 {baseLat}ms
+connect n1 n26 {baseLat}ms
+connect n1 n28 {baseLat}ms
+connect n1 n13 {baseLat}ms
+connect n2 n34 {baseLat}ms
+connect n2 n35 {baseLat}ms
+connect n2 n5 {baseLat}ms
+connect n2 n6 {baseLat}ms
+connect n2 n32 {baseLat}ms
+connect n2 n9 {baseLat}ms
+connect n2 n7 {baseLat}ms
+connect n2 n14 {baseLat}ms
+connect n2 n23 {baseLat}ms
+connect n2 n25 {baseLat}ms
+connect n2 n63 {baseLat}ms
+connect n3 n8 {baseLat}ms
+connect n3 n41 {baseLat}ms
+connect n3 n11 {baseLat}ms
+connect n3 n12 {baseLat}ms
+connect n3 n18 {baseLat}ms
+connect n3 n15 {baseLat}ms
+connect n3 n44 {baseLat}ms
+connect n3 n16 {baseLat}ms
+connect n3 n50 {baseLat}ms
+connect n3 n51 {baseLat}ms
+connect n3 n20 {baseLat}ms
+connect n3 n54 {baseLat}ms
+connect n3 n24 {baseLat}ms
+connect n3 n47 {baseLat}ms
+connect n3 n62 {baseLat}ms
+connect n4 n17 {baseLat}ms
+connect n4 n10 {baseLat}ms
+connect n4 n55 {baseLat}ms
+connect n4 n31 {baseLat}ms
+connect n5 n60 {baseLat}ms
+connect n5 n37 {baseLat}ms
+connect n5 n30 {baseLat}ms
+connect n5 n53 {baseLat}ms
+connect n6 n57 {baseLat}ms
+connect n6 n45 {baseLat}ms
+connect n7 n49 {baseLat}ms
+connect n7 n36 {baseLat}ms
+connect n7 n22 {baseLat}ms
+connect n10 n27 {baseLat}ms
+connect n10 n46 {baseLat}ms
+connect n11 n29 {baseLat}ms
+connect n12 n21 {baseLat}ms
+connect n12 n39 {baseLat}ms
+connect n13 n42 {baseLat}ms
+connect n13 n61 {baseLat}ms
+connect n15 n19 {baseLat}ms
+connect n15 n43 {baseLat}ms
+connect n20 n38 {baseLat}ms
+connect n25 n59 {baseLat}ms
+connect n27 n48 {baseLat}ms
+connect n29 n56 {baseLat}ms
+connect n29 n58 {baseLat}ms
+connect n32 n52 {baseLat}ms
+
+set-bandwidth all 100mbps
+
+# build
+build-network

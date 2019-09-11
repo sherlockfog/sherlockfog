@@ -1,0 +1,29 @@
+# vars
+let baseLat 0.2
+let graphSize 16
+let edgeClusters [n1,n6 n1,n8 n4,n9 n4,n10]
+
+# nodes
+for n in 0..{graphSize} do def n{n} {nextRealHost}
+
+# edges
+connect n0 n2 {baseLat}ms
+connect n0 n3 {baseLat}ms
+connect n0 n5 {baseLat}ms
+connect n0 n7 {baseLat}ms
+connect n0 n11 {baseLat}ms
+connect n0 n12 {baseLat}ms
+connect n0 n15 {baseLat}ms
+connect n1 n8 {baseLat}ms
+connect n1 n2 {baseLat}ms
+connect n1 n6 {baseLat}ms
+connect n2 n4 {baseLat}ms
+connect n2 n14 {baseLat}ms
+connect n3 n13 {baseLat}ms
+connect n4 n9 {baseLat}ms
+connect n4 n10 {baseLat}ms
+
+set-bandwidth all 100mbps
+
+# build
+build-network

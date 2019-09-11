@@ -1,0 +1,10 @@
+# define network
+include test_big_network.fog
+
+# test nested for
+for n in 0..101 do
+	for j in {n}..101..5 do
+		runas n0 netns n0 mgeier echo {n} {j}
+	end for
+	for j in {n}..101..6 do runas n0 netns n0 mgeier echo {j}
+end for

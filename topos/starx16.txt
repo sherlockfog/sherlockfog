@@ -1,0 +1,31 @@
+# vars
+let baseLat 0.2
+let graphSize 16
+
+# nodes
+for n in 0..{graphSize} do def n{n} {nextRealHost}
+# center
+def n16 {nextRealHost}
+
+# edges
+connect n16 n0 {baseLat}ms
+connect n16 n1 {baseLat}ms
+connect n16 n2 {baseLat}ms
+connect n16 n3 {baseLat}ms
+connect n16 n4 {baseLat}ms
+connect n16 n5 {baseLat}ms
+connect n16 n6 {baseLat}ms
+connect n16 n7 {baseLat}ms
+connect n16 n8 {baseLat}ms
+connect n16 n9 {baseLat}ms
+connect n16 n10 {baseLat}ms
+connect n16 n11 {baseLat}ms
+connect n16 n12 {baseLat}ms
+connect n16 n13 {baseLat}ms
+connect n16 n14 {baseLat}ms
+connect n16 n15 {baseLat}ms
+
+set-bandwidth all 100mbps
+
+# build
+build-network

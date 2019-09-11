@@ -1,0 +1,64 @@
+# vars
+let exitNode1 0
+let exitNode2 49
+let graphSize 50
+
+let baseLat 0.2
+let targetLinks n0 n49
+
+# nodes
+for n in 0..{graphSize} do def n{n} {nextRealHost}
+
+# edges
+connect n0 n1 {baseLat}ms
+connect n0 n2 {baseLat}ms
+connect n0 n3 {baseLat}ms
+connect n0 n4 {baseLat}ms
+connect n0 n5 {baseLat}ms
+connect n0 n6 {baseLat}ms
+connect n0 n7 {baseLat}ms
+connect n0 n8 {baseLat}ms
+connect n0 n9 {baseLat}ms
+connect n0 n10 {baseLat}ms
+connect n0 n11 {baseLat}ms
+connect n0 n12 {baseLat}ms
+connect n0 n13 {baseLat}ms
+connect n0 n14 {baseLat}ms
+connect n0 n15 {baseLat}ms
+connect n0 n16 {baseLat}ms
+connect n0 n17 {baseLat}ms
+connect n0 n18 {baseLat}ms
+connect n0 n19 {baseLat}ms
+connect n0 n20 {baseLat}ms
+connect n0 n21 {baseLat}ms
+connect n0 n22 {baseLat}ms
+connect n0 n23 {baseLat}ms
+connect n0 n24 {baseLat}ms
+connect n0 n49 {baseLat}ms
+connect n25 n49 {baseLat}ms
+connect n26 n49 {baseLat}ms
+connect n27 n49 {baseLat}ms
+connect n28 n49 {baseLat}ms
+connect n29 n49 {baseLat}ms
+connect n30 n49 {baseLat}ms
+connect n31 n49 {baseLat}ms
+connect n32 n49 {baseLat}ms
+connect n33 n49 {baseLat}ms
+connect n34 n49 {baseLat}ms
+connect n35 n49 {baseLat}ms
+connect n36 n49 {baseLat}ms
+connect n37 n49 {baseLat}ms
+connect n38 n49 {baseLat}ms
+connect n39 n49 {baseLat}ms
+connect n40 n49 {baseLat}ms
+connect n41 n49 {baseLat}ms
+connect n42 n49 {baseLat}ms
+connect n43 n49 {baseLat}ms
+connect n44 n49 {baseLat}ms
+connect n45 n49 {baseLat}ms
+connect n46 n49 {baseLat}ms
+connect n47 n49 {baseLat}ms
+connect n48 n49 {baseLat}ms
+
+# build
+build-network

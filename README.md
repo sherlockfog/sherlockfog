@@ -1,7 +1,7 @@
-The Tool
+Overview
 ========
 
-SherlockFog is a tool that takes care of automating the deployment of a given emulated network topology and running experiments on top of it.
+SherlockFog is a tool that takes care of automating the deployment of an emulated network topology and running experiments on top of it.
 In a nutshell, it *transforms* a script written in a custom language that defines a topology and the description of an experiment into hundreds or thousands of shell commands that achieve this goal.
 These commands are executed sequentially over one or several hosts.
 Its main focus is the execution and evaluation of MPI applications in non-standard configurations, with an emphasis on Fog/Edge Computing network scenarios, although other types of distributed systems can be emulated as well.
@@ -26,12 +26,13 @@ It also allows MPI host files to be set up more easily using consistent names, t
 Name resolution is handled by generating appropriate `/etc/hosts` files for each namespace automatically.
 These files are bound by the `ip netns exec` command.
 
-Finally, using the NetEm traffic control extension via the `tc` tool, link parameters can be modified on a given virtual network interface's outbound port.
+Finally, using the NetEm traffic control extension via the `tc` tool, link parameters such as latency and bandwidth can be modified on the outbound port of any virtual network interface.
+This allows the emulation of distant networks using local connectivity.
 
 Software Requirements
 =====================
 
-SherlockFog is implemented in Python version 3 and has dependencies on some Python modules and shell commands.
+SherlockFog is implemented in Python version 3 and has dependencies on some additional Python modules and shell commands.
 The following Python modules are required:
 
 * `networkx`: graph handling.
@@ -40,18 +41,18 @@ The following Python modules are required:
 
 The following shell commands are used by SherlockFog explicitly:
 
-* ip: handles virtual network interface creation, address discovery, routing tables, ARP tables, network namespaces.
-* tc: traffic shaping handling.
-* cgcreate: handles cgroup creation.
-* cgset: handles CPU sets and other cgroup parameters.
-* cgdelete: removes cgroup.
-* cgexec: command execution inside a *cgroup*.
-* ssh: used to execute commands on an interactive shell inside a virtual node.
-* sshd: OpenSSH is instantiated on every virtual node to accept connections.
-* lscpu: CPU topology discovery.
-* unshare: UTS namespace creation.
+* `ip`: handles virtual network interface creation, address discovery, routing tables, ARP tables, network namespaces.
+* `tc`: traffic shaping handling.
+* `cgcreate`: handles cgroup creation.
+* `cgset`: handles CPU sets and other cgroup parameters.
+* `cgdelete`: removes cgroup.
+* `cgexec`: command execution inside a *cgroup*.
+* `ssh`: used to execute commands on an interactive shell inside a virtual node.
+* `sshd`: OpenSSH is instantiated on every virtual node to accept connections.
+* `lscpu`: CPU topology discovery.
+* `unshare`: UTS namespace creation.
 
-On Ubuntu 18.04, the following command installs all dependencies:
+On Ubuntu 18.04, the following command installs all required dependencies:
 
 ```
 # apt install python3-networkx python3-matplotlib python3-paramiko iproute2 cgroup-tools util-linux openssh-server
@@ -60,13 +61,13 @@ On Ubuntu 18.04, the following command installs all dependencies:
 Installation
 ============
 
-SherlockFog has been designed to be easily deployable.
-Since it is executed only on a single node, the Python dependencies needn't be installed elsewhere.
-The command line tools that have been mentioned in the previous section, however, must be available in worker nodes.
+SherlockFog has been designed to be easy to install and deploy.
+Since it is executed only on a single node, the Python dependencies don't have to be installed elsewhere.
+The command line tools that have been mentioned in the previous section, however, must be available in worker nodes as well.
 
-Additionally, the coordinator must be able to connect to worker nodes via password-less SSH with appropriate privileges (e.g. root access).
+Additionally, the coordinator must be allowed to connect to worker nodes via password-less SSH with appropriate privileges (i.e. root access).
 
-Worker nodes don't require being in the same physical network, as long as all IP traffic between nodes is forwarded unrestricted.
+Worker nodes don't require being in the same physical network as long as all IP traffic between nodes is forwarded in an unrestricted way.
 
 Command Line Arguments
 ======================
@@ -130,23 +131,16 @@ Considerations, caveats and bugs:
 		If more virtual nodes are instantiated in a given host than the number of cores, setting the assigned core for exclusive access for the second time will result in an error.
 * `--routing-algo`: the `world_topo` option relies on the names of the virtual nodes to properly define routing tables.
 		Names **must** be defined following this template, where `{n}` is the node number and `{ccTLD}` is the top-level domain for a given country (in uppercase letters):
-    * `h{n}`: end nodes.
-
-Must be connected to a single virtual node, which must be an intermediate switch (node degree equals 1).
-The prefix letter `h` may be changed using the `--node-name-prefix` argument.
-    * `s{n}`: intermediate switches.
-
-Must be connected only to a world backbone switch and an end node (node degree equals 2).
-    * `s{n}-{ccTLD}`: world backbone switch for country `{ccTLD}`.
-
-		Must be connected to every other world backbone switch (node degree equals to the number of countries plus the number of intermediate switches for that country).
+    * `h{n}`: end nodes. Must be connected to a single virtual node, which must be an intermediate switch (node degree equals 1). The prefix letter `h` may be changed using the `--node-name-prefix` argument.
+    * `s{n}`: intermediate switches. Must be connected only to a world backbone switch and an end node (node degree equals 2).
+    * `s{n}-{ccTLD}`: world backbone switch for country `{ccTLD}`. Must be connected to every other world backbone switch (node degree equals to the number of countries plus the number of intermediate switches for that country).
 		
 Additionally, virtual nodes \textbf{must} define a \texttt{country} property to be able to properly identify them using the \verb!set-node-property! instruction in code.
 
 * Using `--routing-algo tree_subnets` on a graph with loops may result in SherlockFog hanging.
 * Using `--adm-iface-addr` with an address that corresponds to a different network interface than the default route that is used to connect to the hosts will result in the administrative network not being able to connect to any virtual node.
-* Macvlan doesn't work on non-Ethernet interfaces (e.g. InfiniBand or the loopback interface).
-* SherlockFog **does not** support IPv6.
+* Macvlan doesn't work over non-Ethernet interfaces (e.g. InfiniBand or the loopback interface), as it requires a MAC address.
+* SherlockFog **does not** support IPv6 (yet).
 
 The Scripting Language
 ======================
@@ -204,12 +198,13 @@ A syntactically correct *fog* program conforms to the following EBNF grammar:
 	eol           = "\n";
 ```
 
-The language has block scopes, but each command is matched within a single line.
+## Overview
+
+The language has block scopes, but each command is only matched within a single line.
 The following commands are defined:
 
 * `def vnode`: defines a new virtual node called `vnode`.
-
-		This instruction comprises the creation of a network namespace with the same name in one of the hosts of the real host pool and adding it to the topology.
+This instruction comprises the creation of a network namespace with the same name in one of the hosts of the real host pool and adding it to the topology.
 
 * `let var value`: defines a syntactic replacement for all bound occurrences of the `{var}` expression to `value` in the current execution context.
 
@@ -231,16 +226,15 @@ This commands accept delay definitions in the same notation as `tc`.
 This instruction defines new virtual interfaces in `vnode1` and `vnode2`, assigning IP addresses from a newly unassigned P2P subnet to both endpoints.
 	
 * `build-network`: defines the routing and `ARP` tables in every previously defined virtual node and topology.
-		The algorithm used to generate these rules depends on the value of the `--routing-algo` option.
-        
-        Failing to execute this command results in the virtual network not being able to route traffic unless a set of rules is defined manually.
-		It also defines the containers' `/etc/hosts` file to be able to resolve the names of every node in the network.
-		Note that every container should have the same version of this file, but it must be replicated to be bound to each network namespace.
-        This operation is performed automatically by this command.
+The algorithm used to generate these rules depends on the value of the `--routing-algo` option.
+Failing to execute this command results in the virtual network not being able to route traffic unless a set of rules is defined manually.
+It also defines the containers' `/etc/hosts` file to be able to resolve the names of every node in the network.
+Note that every container should have the same version of this file, but it must be replicated to be bound to each network namespace.
+This operation is performed automatically by this command.
 	
 * `save-graph filename`: saves the current topology to `filename`.
-		This command makes use of NetworkX and supports every format that is supported by this module.
-        Please refer to its documentation for more details.
+This command makes use of NetworkX and supports every format that is supported by this module.
+Please refer to its [documentation](https://networkx.github.io/documentation/stable/) for more details.
 	
 * `set-node-property vnode prop value`: defines in `vnode` a node property with name `prop` and value `value`.
 These properties might be used by static routing algorithms to implement a particular model.
@@ -248,12 +242,12 @@ These properties might be used by static routing algorithms to implement a parti
 * `shell vnode`: starts a shell in virtual node `vnode`, or in the coordinator if unspecified.
 
 * `shelladm`: starts a shell in the administrative virtual node.
-		This command has no effect if the administrative interface has not been initialized.
+This command has no effect if the administrative interface has not been initialized.
 
 * `runadm cmd`: executes `cmd` as the `root` user in the administrative virtual node.
-		This command has no effect if the administrative interface has not been initialized.
+This command has no effect if the administrative interface has not been initialized.
 
-Additionally, a macro system is used to query context information, which includes topology objects, scoped variables or ``magic'' arguments.
+Additionally, a macro system is used to query context information, which includes topology objects, scoped variables or "magic" arguments.
 Language expressions that enclose identifiers between brackets are replaced by their corresponding value before evaluation.
 These identifiers can appear anywhere except as part of the definition of a `for` command.
 A few examples follow:
@@ -263,7 +257,7 @@ A few examples follow:
 		For example, if the value of `i` were `adm`, the resulting name would be `nadm`.
 		Finally, the string `{n0.default_iface.ip}` is resolved by taking `n0` as a node object and navigating its attributes (it is evaluated within the Python interpreter).
 		In this case, it will output the IP address of the default (first) virtual interface of `n0`.
-* ``Magic'' arguments:
+* "Magic" arguments:
     * `def n0 {nextRealHost}` &#8594; `{nextRealHost}` resolves to the next IP address in the real host list.
 	This address is removed from the list.
 	It is also the default value of the optional IP argument.

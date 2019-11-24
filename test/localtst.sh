@@ -1,7 +1,7 @@
 #!/bin/bash
 
 if [ -z $1 ]; then
-	IP=192.168.2.180
+	IP=192.168.1.100
 else
 	IP=$1
 fi

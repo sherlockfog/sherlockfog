@@ -223,13 +223,13 @@ class IPPool(object):
 
 class HostPool(object):
     P2P_MASK = 30
-    def __init__(self, name, base=None, args=None, use_adm=False):
+    def __init__(self, name, base=None, args=None, use_adm=False, topo=None):
         self.name = name
         self.hosts_dict = {}
         self.hosts = []
         self.ippool = IPPool(base=base)
         self.networks = {}
-        self.topo = None
+        self.topo = topo
         self.real_hosts = []
         self.args = args
         # setup administrative vhost
@@ -242,6 +242,8 @@ class HostPool(object):
             self.adm_pool = iter(IPPool(base=args.base_adm_prefix))
             #print('DEBUG  adm', self.adm_host.real_default_iface.name, 'adm0', next(self.adm_pool))
             self.adm_host.veth('adm', self.adm_host.real_default_iface.name, 'adm0', next(self.adm_pool), is_adm=True)
+    def set_topo(self, topo):
+        self.topo = topo
     def add_real_host(self, name):
         self.real_hosts.append(name)
     def close(self):
@@ -1809,8 +1811,8 @@ if __name__ == '__main__':
     lan0 = HostPool('lan0',
             base=args.base_prefix,
             use_adm=args.use_adm_ns,
-            args=args)
-    lan0.topo = topo0
+            args=args,
+            topo=topo0)
 
     e = ExecutionEnvironment(topo0, lan0, locals=locals, args=args)
 

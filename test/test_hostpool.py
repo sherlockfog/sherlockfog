@@ -12,8 +12,8 @@ def test_create_three_hosts_reachable_unreachable():
     lan0 = sherlockfog.HostPool('lan0',
             base=args.base_prefix,
             use_adm=False,
-            args=args)
-    lan0.topo = topo0 # FIXME
+            args=args,
+            topo=topo0)
 
     n0 = sherlockfog.Host('n0', ip, args=args)
     n1 = sherlockfog.Host('n1', ip, args=args)

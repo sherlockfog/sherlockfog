@@ -3,67 +3,352 @@ Overview
 
 SherlockFog is a tool that takes care of automating the deployment of an emulated network topology and running experiments on top of it.
 In a nutshell, it *transforms* a script written in a custom language that defines a topology and the description of an experiment into hundreds or thousands of shell commands that achieve this goal.
-These commands are executed sequentially over one or several hosts.
-Its main focus is the execution and evaluation of MPI applications in non-standard configurations, with an emphasis on Fog/Edge Computing network scenarios, although other types of distributed systems can be emulated as well.
+These commands may be executed over one or several hosts.
+Its main goal is to experiment with distributed software on emulated arbitrary network topologies, with an emphasis on experiment reproducibility.
 
-It makes extensive use of the `ip` tool, found on most GNU/Linux installations, to set up virtual Ethernet interfaces inside Linux Network Namespaces.
-The virtual interfaces are created by the `veth` subcommand of `ip`, using the [macvlan feature](https://hicu.be/bridge-vs-macvlan) in bridge mode.
-Macvlan allows a single real network interface to have different MAC addresses, each connected to a different ``subinterface'' which is managed independently.
-The kernel takes care of routing incoming traffic to the correct interface by looking up the destination MAC address of each fragment.
-A pair in the virtual network is connected by simply assigning IP addresses in the same P2P network (/30 network prefix) to both endpoints.
-All traffic flows through the carrier of the host network interface, which is thus the main bottleneck of the emulated network.
-Each interface has not just a different MAC address but also a standalone configuration (e.g. its own name resolution dictionary, firewall, ARP and routing tables).
+SherlockFog makes extensive use of the `ip` tool, found on most GNU/Linux installations, to set up virtual Ethernet interfaces inside Linux Network Namespaces.
+Each namespace defines a virtual host, which can be connected to an arbitrary subset of nodes by P2P links.
+Each P2P link corresponds to a link in the source topology graph.
+Each virtual host has not just a different MAC address but also a standalone network configuration (e.g. its own name resolution dictionary, firewall, ARP and routing tables).
 
-Containers are reached via SSH servers which are brought up automatically upon creation.
-Each server runs on a different [UTS namespace](http://windsock.io/uts-namespace/), whose hostname matches that of the virtual host.
-This feature is used to isolate the applications inside the emulated network, as some MPI implementations check the hostname to define whether shared memory or a network transport should be used for communication.
-To the best of our knowledge, no other network experimentation tool takes this into account.
+Virtual hosts can be accessed by executing directly into the namespaces or via SSH servers which are brought up automatically upon creation.
+Each SSH server runs on a different [UTS namespace](http://windsock.io/uts-namespace/), whose hostname matches that of the virtual host.
 
-Virtual nodes are further isolated by using Linux cgroups, a feature that is used on other similar platforms, such as Mininet-HiFi, to improve emulation fidelity.
+Virtual hosts are further isolated by using Linux cgroups, a feature that is used on other similar platforms, such as Mininet-HiFi, to improve emulation fidelity.
 It is possible to use this feature to assign CPU cores for exclusive access so that the client code that is executed in a virtual node is not migrated by the kernel at runtime.
 
-Name resolution is handled by generating appropriate `/etc/hosts` files for each namespace automatically.
-These files are bound by the `ip netns exec` command.
-This feature allows host files to be generated automatically using consistent names, the choice of real hosts notwithstanding.
+Name resolution is handled by generating appropriate `/etc/hosts` files bound to each namespace.
+Each file maps all reachable hosts defined by their virtual names and default IP addresses.
+This feature allows consistent naming of the nodes throughout the experiment, the choice of real hosts notwithstanding.
 
 Finally, using the NetEm traffic control extension via the `tc` tool, link parameters such as latency and bandwidth can be modified on the outbound port of any virtual network interface.
 This allows the emulation of distant networks using local connectivity.
 
+**TL;DR** In case you are not interested in the technical details and architecture of the tool, go to the end of this document for some examples.
+
+Virtual Hosts
+=============
+
+A virtual host is a *container* with a distinct name that has its own network configuration, and is connected to 0 or more virtual hosts over a common physical network.
+The virtual or emulated topology that can be generated by connecting these nodes to each other in a specific way has an isolated address space and configuration.
+
+Each virtual host may be located on one or more physical nodes and is able to run software that makes use of the emulated network.
+Additionally, other types of operating system resources, such as CPUs, filesystem, PIDs and users, may be isolated from the physical (and the other virtual) nodes, depending on the configuration of the tool.
+
+There is no concept of switches, routers or other link aggregators, only hosts that are connected through point-to-point links, which are always bi-directional.
+In general, an additional host with multiple links could be used instead to achieve a similar result, except for very specific routing requirements (e.g. if it is required that all nodes are located in the same L3 network).
+
+To show an example, let `n0`, `n1` and `n2` be virtual hosts.
+Host `n0` is connected directly to `n1` and `n2`.
+For simplicity, all of them are located in a single physical node.
+The resulting virtual topology is shown below:
+
+```
+       n0                n1
+     ------            ------
+     |    |            |    |
+     |    |------------|    |
+     |    |\           |    |
+     ------ \          ------
+             \
+              \
+               \
+             ------
+             |    |
+             |    |
+             |    |
+             ------
+               n2
+```
+
+After the virtual hosts have been initialized, there will be three *network namespaces* `n0`, `n1` and `n2` on the physical node.
+Assuming that the creation order of the topology was:
+- create host `n0`,
+- create host `n1`,
+- create host `n2`,
+- create link `(n0, n1)`,
+- create link `(n0, n2)`,
+
+the resulting network configuration would look as follows within each of these namespaces:
+
+| Virtual host | Virtual NIC   |  IP address    |
+|--------------|---------------|:--------------:|
+| n0           | veth0         |  10.67.0.1/30  |
+| n0           | veth1         |  10.67.0.5/30  |
+| n1           | veth0         |  10.67.0.2/30  |
+| n2           | veth0         |  10.67.0.6/30  |
+
+Each link is assigned a /30 address by subnetting the 10.67.0.0/16 block in order.
+The assignment is deterministic, based on which network block is used and the order in which the virtual hosts and links are created.
+This determines that successive runs of the same experiment will yield the same IP addresses for each virtual NIC.
+Moreover, statically-generated `/etc/hosts` names will resolve to the *first* NIC of each virtual host.
+
+Note that the virtual NIC addresses are isolated and are only accessible from within each container.
+Each virtual host is configured to automatically forward traffic (i.e. act as a router), thus every node in each component will be reachable if appropriate routing rules are in place.
+
+SherlockFog implements two different modes to create virtual network topologies and two modes to create containers.
+These are composable, allowing the user to adapt the desired level of isolation to the characteristics of the testbed and the experiment.
+Each mode is described in the following sections in detail.
+
+Virtual Network Topology
+========================
+
+SherlockFog implements two different strategies to generate virtual topologies: macvlan and geneve.
+Which one to use should be defined depending on the configuration of the physical hosts and the traffic requirements of the experiment.
+
+## Macvlan mode
+
+[Macvlan](https://hicu.be/bridge-vs-macvlan) mode works by creating bridged interfaces for which the kernel will route incoming packets based on the destination MAC address.
+In practice, a macvlan interface acts as a bridged interface over the physical device that is connected to a virtual endpoint which may be located inside a network namespace, but the operator can't see the bridge at all, as it is hidden by the kernel.
+
+The biggest limitation of macvlan is that it works only on Ethernet interfaces, as it needs a MAC address to determine the destination network namespace.
+On the other hand, since the generated traffic is sent without any type of encapsulation, there is no overhead compared to operating on physical interfaces.
+A clear consequence of the implementation of macvlan is that only unicast traffic is supported.
+This means that, in order for routing to work properly accross the network, it must be configured statically on initialization.
+Relatedly, ARP traffic must not be generated by the virtual interfaces at all, since any other interface would be able to recieve an ARP request and reply to it even if they weren't neighbors in the virtual topology.
+Since ARP discovery can't possibly work under these requirements, ARP tables need to be populated beforehand in order for nodes to learn which of them are their actual neighbors in the virtual topology.
+Consequently, routing tables need to be generated statically as well, as no routing algorithm can be executed on such a network.
+
+Firewall- and switch-wise, since the traffic is not encapsulated, it is required that:
+
+- any type of traffic that is required by the experiment is allowed through the physical switch ports (be it a single NIC pair in point-to-point connections or actual switch ports), and
+- multiple MAC addresses are allowed per source/destination physical address (e.g. no MAC filtering).
+
+This mode should be preferred in case the MTU of the physical network interfaces is too low to support encapsulation (e.g. max. 1500 bytes on Ethernet).
+
+## Geneve mode
+
+[Geneve](https://www.redhat.com/en/blog/what-geneve) mode provides complete isolation of the emulated traffic at the expense of more complex initialization steps and the use of geneve tunnels for communication between physical nodes.
+In this mode, an additional network namespace `topo` is generated, which contains bridges and tunnel endpoints, both virtual (veth) and real (geneve).
+Virtual node pairs are connected to each other through at least one bridge in `topo`, but the actual internal path depends on whether the destination virtual host resides on the same physical node or not.
+
+**Virtual nodes in the same physical node**: A bridge in `topo` connects two veth pairs, whose endpoints are located in the corresponding virtual node.
+For instance, let nodes `n0` and `n1` be connected through their `veth0` interfaces to each other. The resulting topology would look like this:
+
+```
+Single physical node
+======================================================
+| n0              topo                 n1            |
+| ------------    -----------------    ------------  |
+| |          |    |               |    |          |  |
+| |    veth0-|----|------br0------|----|-veth0    |  |
+| |          |    |               |    |          |  |
+| ------------    -----------------    ------------  |
+======================================================
+```
+The `br0` interface is a bridge, which resides on `topo`, but is actually connecting veth tunnel endpoints in the `n0` and `n1` containers.
+The bridge includes only the veth endpoints for both `veth0` interfaces, using interface name prefixes to avoid overlapping.
+
+**Virtual nodes in different physical nodes**: In this case, let's consider two physical nodes `phys0` and `phys1` and the same example as before, but now `n0` is located in `phys0` and `n1` in `phys1`.
+This requires that the `br0` bridges in the `topo` namespaces of each physical host are connected to each other.
+The resulting topology would now result in something like this:
+
+```
+Physical node phys0                          Physical node phys1
+======================================       ======================================
+| n0              topo               |       |  topo                 n1           |
+| ------------    -----------------  |       |  -----------------    ------------ |
+| |          |    |               |  |       |  |               |    |          | |
+| |    veth0-|----|------br0------|--|--gv0--|--|------br0------|----|-veth0    | |
+| |          |    |               |  |       |  |               |    |          | |
+| ------------    -----------------  |       |  -----------------    ------------ |
+======================================       ======================================
+```
+The `gv0` tunnel (type geneve) allows this by creating an encapsulated VLAN with its own VNI for each emulated link, thus effectively isolating the traffic of each virtual link.
+In this case, the `br0` bridges include not just the corresponding veth endpoints, as in the same physical node case, but also the endpoint of the geneve tunnel `gv0`.
+
+It is worth noting that the MTU of the `gv0` tunnel effects the maximum MTU of the `veth0` interfaces.
+Should an MTU of 1500 bytes need to be emulated, it would be necessary that the physical link for `gv0` had a larger MTU, big enough to include the geneve headers as well.
+Since geneve is a variable-length protocol, a maximum of 260 extra bytes needs to be accounted for to ensure that all traffic will go through unfettered.
+
+A major advantage of this mode is that any type of traffic can be encapsulated, requiring only the geneve port (port 6081/UDP) to be allowed on the firewall of the physical nodes.
+This means that multicast traffic works normally, and thus ARP or any routing algorithm could work on these interfaces.
+Additionally, unlike macvlan mode, this configuration is suitable for use in virtualized environments, such as public or private clouds.
+Even static route generation, which continues to be supported in this mode, can take advantage of this mode, as it generates less entries on initialization, considering that ARP tables can be populated automatically through normal ARP discovery.
+
+Routing Modes
+=============
+
+With respect to the routing tables, these may be populated using one of several strategies that are implemented in SherlockFog, or even generate no routing rules at all.
+The latter is useful if the experiment provides its own routing algorithm, such as the implementations of OSPF or RIP found in [FRR](https://frrouting.org/).
+Note that this option requires multicast traffic, and thus can only work in geneve mode.
+
+The supported routing algorithms (`--routing-algo` option) are as follows:
+
+- **`shortest_path`**: Routes generated by calculating all shortest paths in the topology using the Dijkstra shortest-path algorithm.
+  The weights are set to the link latencies.
+  An interesting caveat of this mode is that it generates an entry in the routing table for each reachable host.
+  This clearly grows exponentially with the number of hosts in the network, which could result in very high initialization times and huge routing tables on each host.
+  The former can be mitigated by using the parallel vhost creation mode (`--parallel-vhost-creation` option), whereas the latter would require the use of other routing strategies, such as `shortest_path_compressed` below.
+- **`shortest_path_compressed`**: This is the default mode. It is identical to `shortest_path`, but tries to generate less entries by collapsing consecutive IP ranges in a single entry with a lower netmask.
+For instance, if 10.67.0.1/32 and 10.67.0.2/32 are reachable through the same NIC veth0, considering that all links are composed of /30 subnets, the algorithm will output just 10.67.0.0/30 instead.
+Similarly, if two consecutive reachable /30 subnets overlap a single /29, the algorithm will output just that /29, and so on.
+- **`tree_subnets`**: This mode assumes the network is a tree (i.e. has no loops).
+It generates routing rules by iterating the graph using the DFS algorithm and calculating all reachable networks from each node.
+- **`world_topo`**: World Topology as defined by [[Geier et al.]](https://doi.org/10.1109/EMPDP.2019.8671550)
+This routing algorithm is heavily based on the names of the nodes.
+Moreover, the country of a node is (and must be) defined by setting the `country` property (`set-node-property` *fog* command) to a valid TLD.
+These patterns have to be used when naming the nodes:
+  - `h{num}`: End nodes;
+  - `s{num}`: Intermediate switches, i.e. switches that connect several end nodes in the same country. These nodes are connected to their corresponding cross-country gateway switch.
+  - `s{num}-{cTLD}`: Cross-country switches; destination country is defined by `{cTLD}`; these switches will generate a clique.
+- **`world_topo_flat`**: World Topology variant with flat levels between each pair of country gateway nodes.
+In this variant, intermediate cross-country switches (`s{num}-{cTLD}`) are not found, unlike `world_topo`.
+Nodes are connected directly to all destination `s{num}` switches.
+- **`none`**: No pre-defined routing tables.
+
+Container Modes
+===============
+
+SherlockFog implements a native mode and a Docker mode to initialize each container.
+These containers are short-lived, i.e. they are created when the experiment starts and destroyed on termination.
+
+## Native (or "Normal") Mode
+
+In this mode, each container leverages the following virtualization layers provided by the Linux kernel:
+
+- *CPU*: A CGroup is defined to isolate processes that run within that container.
+It is possible to select a specific CPU core for exclusive use, as well as select the NUMA memory region that matches it.
+The name of the CGroup matches that of the virtual host.
+- *Host names*: An [UTS namespace](http://windsock.io/uts-namespace/) is defined using the host name that matches the defined virtual host.
+- *Network*: Each container runs on its own network namespace, again called the same as the virtual host.
+A `/etc/hosts` file is defined under each namespace to facilitate resolving virtual host names from inside.
+
+The entry point to the container is an SSH daemon that runs in the CGroup and UTS and network namespaces that have been created.
+In order to launch the SSH daemon with the proper host name set, the `ns-sshd` helper script is used.
+This script simply wraps a host name change and the execution of the actual daemon, and is located in the `helpers/` directory.
+Each command that is executed by the experiment into one of the virtual nodes should spawn a child process of the virtual host's SSH daemon in order to ensure that the resource restrictions are properly applied.
+This is enforced by the different `run` commands in the *fog* language.
+
+## Docker Mode
+
+This mode leverages Docker to deploy and encapsulate the software that is executed by each virtual host.
+The Docker-based virtual nodes have similar characteristics compared to Native Mode, but use additionally the following virtualization layers provided by the Linux kernel:
+
+- *Filesystem*: The filesystem is isolated from the physical host, using a common Docker image for each virtual host.
+  A Docker container is created for each virtual host on initialization, and lives throughout the experiment.
+  The clean-up step removes it, including its underlying filesystem.
+  Data exchange with the physical host is achieved by using Docker volume binds.
+- *Process list*: The PID space is isolated on each virtual host.
+  The Docker container must use an init, such as `dumb-init`, to initialize an SSH daemon (more details below).
+- *Host names*: An UTS namespace is defined, similarly to Native Mode, but handled by Docker itself.
+
+Network namespaces are also used in Docker mode, defined externally by SherlockFog when the experiment is initialized.
+The network namespace is switched using the container entry point, therefore the network is fully managed by SherlockFog, as in Native Mode.
+CPU core limit and exclusive mode are also managed by Docker in this mode.
+
+A base docker container requires at least the following binaries and scripts in order for SherlockFog to be able to use it:
+
+- `/usr/local/bin/dumb-init` (from [dumb-init](https://github.com/Yelp/dumb-init)).
+This could optionally be replaced by any other init system.
+- `/usr/bin/sshd` (from OpenSSH).
+The SSH daemon is spawned by the init system.
+
+Moreover, depending on the Docker version, additional dependencies are required:
+
+- Docker < 25: `/sbin/ip` (from iptools).
+- Docker >= 25: The [nsmux](https://gitlab.licar.exp.dc.uba.ar/sherlockfog/nsmux) OCI runtime wrapper, which needs to installed and registered with the local Docker daemon.
+
+The container creation procedure differs significantly between Docker >= 25 and older versions. In the latter case, it was possible to [exploit](https://github.com/opencontainers/runc/security/advisories/GHSA-xr7r-f8xq-vfvv) the container isolation provided by Docker and change the network namespace of a container that was started used host networking.
+This breaks in Docker 25 and therefore another approach is required.
+
+The new, more robust approach, requires replacing the runtime used by Docker with another one that takes care of joining the appropriate network namespace _before_ the container is created.
+Refer to the nsmux documentation for more information.
+
+Note that the any custom image providing the required files can be used, but it **must be locally available** on every physical node beforehand, as SherlockFog won't try to pull them.
+
+As for the configuration of the container itself, privileged mode and host networking are enabled and the following entry point is set (Docker < 25 only):
+
+```shell
+/sbin/ip netns exec vhost_name /usr/local/bin/dumb-init
+```
+
+Alternatively, for Docker >= 25:
+
+```shell
+ usr/local/bin/dumb-init
+```
+
+Since `ip netns exec` is not used for Docker >= 25, which takes care of mapping the per-netns hosts file, the netns hosts file is manually mounted into the new container.
+As mentioned above, this allows SherlockFog to completely override the Docker network by ensuring that the init process will be executed in the right network namespace.
+
+The init system finally spawns an SSH daemon, thus the container can be used in exactly the same fashion as in Native Mode, as well as through the Docker CLI.
+
+Administrative Interface
+========================
+
+When this mode is enabled, an additional network namespace, named `adm`, is created on the coordinator node.
+Additionally, an extra network interface, also named `adm`, is created on each virtual host.
+The `adm` namespace will hold the endpoints of each of the `adm` interfaces in the virtual hosts.
+All these additional interfaces live on the same local network (10.68.0.0/16 is used by default) and can connect virtual nodes directly to the coordinator node, bypassing the virtual topology.
+This is useful to orchestrate the nodes centrally through an external script, using tools such as ansible.
+
+An obvious caveat when using this mode is that the user needs to be careful that the generated traffic that should go over the emulated topology doesn't use the administrative interface by mistake, since, in principle, it would be available to any application running on the virtual nodes.
+
+REST API
+========
+
+A simple, unauthenticated HTTP server can be started on port `rest_api_port` (default: 8888), that implements a REST API that can be used to retrieve information about the current running instance of SherlockFog.
+This can be enabled using the `--rest-api` command line flag.
+
+The following GET requests are implemented:
+- `/global_status` &#8594; Returns a dictionary with the following keys:
+  - `main_pid` &#8594; PID of the main SherlockFog process. Can be used to gracefully stop the experiment (e.g. if a SIGINT signal is sent to it).
+  - `network_status` &#8594; Same value as the entity `/network_status` below.
+  - `args` &#8594; Command line arguments that were passed to SherlockFog in the current execution.
+- `/network_status` &#8594; Returns an enum `{ CREATING, BUILT }`, which indicates whether the network has been already built (i.e. the `build-network` command has been executed successfully).
+- `/topo` &#8594; Retrieves the current running topology as a list of links.
+- `/hosts` &#8594; Retrieves the list of virtual nodes that have been defined in the current topology. Optionally specify a host name as subentity (e.g. `/hosts/n0`) to retrieve information about the network interfaces that were defined on that virtual node.
+
+Please note that the returned information shows the internal state of SherlockFog and may not correspond exactly to the actual configuration of the running nodes.
+
 Software Requirements
 =====================
 
-SherlockFog is implemented in Python version 3 and has dependencies on some additional Python modules and shell commands.
+SherlockFog is implemented in Python and has dependencies on some additional Python modules and shell commands and daemons.
+The minimum required version of Python is 3.7, whereas the minimum recommended version is 3.9.
 The following Python modules are required:
 
 * `networkx`: graph handling.
 * `matplotlib`: graph visualization and plotting.
 * `paramiko`: SSH connection handling from Python.
 
-The following shell commands are used by SherlockFog explicitly:
+The following shell commands and daemons are executed by SherlockFog explicitly:
 
 * `ip`: handles virtual network interface creation, address discovery, routing tables, ARP tables, network namespaces.
 * `tc`: traffic shaping handling.
 * `cgcreate`: handles cgroup creation.
 * `cgset`: handles CPU sets and other cgroup parameters.
 * `cgdelete`: removes cgroup.
-* `cgexec`: command execution inside a *cgroup*.
+* `cgexec`: command execution in a cgroup.
 * `ssh`: used to execute commands on an interactive shell inside a virtual node.
-* `sshd`: OpenSSH is instantiated on every virtual node to accept connections.
+* `sshd`: OpenSSH is instantiated on every virtual node to accept connections from other nodes.
 * `lscpu`: CPU topology discovery.
 * `unshare`: UTS namespace creation.
 
-On Ubuntu 18.04, the following command installs all required dependencies:
+On Ubuntu 20.04, the following command installs all required dependencies:
 
 ```
-# apt install python3-networkx python3-matplotlib python3-paramiko iproute2 cgroup-tools util-linux openssh-server
+# apt install python3-networkx python3-matplotlib python3-paramiko python3-pydot iproute2 cgroup-tools util-linux openssh-server
 ```
+
+The Python dependencies may also be provided using pip (see `setup.py`).
+
+On Ubuntu 21.10, *cgroupv2* is enabled but the command line tools don't support that version yet.
+Please upgrade the CLI tools (recommended) or make sure *cgroupv1* is used instead.
+This problem should be resolved by the next LTS release.
+
+Finally, Docker can be optionally used to create the containers on each physical node.
+This requires the CLI client on each node that starts a container, e.g. on Ubuntu one would install the `docker.io` package or snap.
+Note that Docker takes care of creating cgroups for each container, thus actually removing the dependency on the cgroup CLI tools if Docker mode is used.
+This has been tested on Docker 20.12, but should work on most compatible versions, including RedHat's podman.
 
 Installation
 ============
 
 SherlockFog has been designed to be easy to install and deploy.
 Since it is executed only on a single node, the Python dependencies don't have to be installed elsewhere.
-The command line tools that have been mentioned in the previous section, however, must be available in worker nodes as well.
+The command line tools mentioned in the previous section, however, must be available in worker nodes as well.
 
 Additionally, the coordinator must be allowed to connect to worker nodes via password-less SSH with appropriate privileges (i.e. root access).
 It is highly recommended to disable Strict Host Key Checking on the SSH client configuration of worker nodes by adding the following line to each `$ROOT_HOME/.ssh/config` file:
@@ -72,7 +357,18 @@ It is highly recommended to disable Strict Host Key Checking on the SSH client c
 StrictHostKeyChecking no
 ```
 
-Worker nodes don't require being in the same physical network as long as all IP traffic between nodes is forwarded in an unrestricted way.
+An important caveat of paramiko is that it [doesn't understand](https://github.com/paramiko/paramiko/issues/1517) the default key format generated by `ssh-keygen`.
+Make sure the default shared key does not include the `OPENSSH` string in its header.
+An easy workaround is to regenerate the root key by running `ssh-keygen` using the following arguments:
+
+```
+ssh-keygen -m PEM -t rsa
+```
+
+The resulting key will thus use the older format, which is compatible with paramiko.
+
+Network-wise, in macvlan mode, worker nodes don't require being in the same physical network as long as all IP traffic between nodes is forwarded without restrictions.
+Geneve mode is even less restrictive, only geneve (port 6081/UDP) and SSH (port 22/TCP) traffic needs to be allowed between nodes.
 
 Command Line Arguments
 ======================
@@ -80,17 +376,25 @@ Command Line Arguments
 Calling SherlockFog with the `-h` or `--help` flag produces the following output:
 
 ```
-usage: sherlockfog [-h] [--dry-run [DRY_RUN]]
-                   [--real-host-list [REAL_HOST_LIST]]
-                   [-D DEFINE [DEFINE ...]] [--base-prefix [BASE_PREFIX]]
-                   [--base-adm-prefix [BASE_ADM_PREFIX]]
-                   [--use-iface-prefix [USE_IFACE_PREFIX]]
-                   [--node-name-prefix [NODE_NAME_PREFIX]]
-                   [--use-adm-ns [USE_ADM_NS]]
-                   [--routing-algo [{shortest_path,tree_subnets,world_topo}]]
-                   [--adm-iface-addr [ADM_IFACE_ADDR]]
-                   [--cpu-exclusive [CPU_EXCLUSIVE]]
-                   TOPO
+usage: sherlockfog.py [-h] [--dry-run | --no-dry-run]
+                      [--real-host-list [REAL_HOST_LIST]]
+                      [-D DEFINE [DEFINE ...]] [--debug]
+                      [--base-prefix [BASE_PREFIX]]
+                      [--base-adm-prefix [BASE_ADM_PREFIX]]
+                      [--use-iface-prefix | --no-use-iface-prefix]
+                      [--node-name-prefix [NODE_NAME_PREFIX]]
+                      [--use-adm-ns | --no-use-adm-ns]
+                      [--routing-algo [{shortest_path,shortest_path_compressed,tree_subnets,world_topo,world_topo_flat,none}]]
+                      [--adm-iface-addr [ADM_IFACE_ADDR]]
+                      [--cpu-exclusive | --no-cpu-exclusive]
+                      [--parallel-vhost-creation | --no-parallel-vhost-creation]
+                      [--max-parallel-workers [MAX_PARALLEL_WORKERS]]
+                      [--geneve-tunnels | --no-geneve-tunnels]
+                      [--docker | --no-docker] [--docker-image [DOCKER_IMAGE]]
+                      [--docker-storage-bind [DOCKER_STORAGE_BIND]]
+                      [--rest-api | --no-rest-api]
+                      [--rest-api-port REST_API_PORT]
+                      TOPO
 
 Setup Random Topology on Commodity Hardware (SherlockFog)
 
@@ -99,30 +403,52 @@ positional arguments:
 
 optional arguments:
   -h, --help            show this help message and exit
-  --dry-run [DRY_RUN]   Dry-run (do not connect, build topology locally)
+  --dry-run, --no-dry-run
+                        Dry-run (do not connect, build topology locally)
   --real-host-list [REAL_HOST_LIST]
                         Pool of IPs to assign nodes to (use {nextRealHost})
   -D DEFINE [DEFINE ...], --define DEFINE [DEFINE ...]
                         Define key=value in execution context
+  --debug               Enable debug mode
   --base-prefix [BASE_PREFIX]
                         Base network prefix for namespace IPs (CIDR notation)
   --base-adm-prefix [BASE_ADM_PREFIX]
                         Base prefix for administrative network (CIDR notation)
-  --use-iface-prefix [USE_IFACE_PREFIX]
+  --use-iface-prefix, --no-use-iface-prefix
                         Use node prefix for virtual interface names (default:
                         False)
   --node-name-prefix [NODE_NAME_PREFIX]
                         Define node name prefix (default: n{num})
-  --use-adm-ns [USE_ADM_NS]
+  --use-adm-ns, --no-use-adm-ns
                         Setup administrative private network
-  --routing-algo [{shortest_path,tree_subnets,world_topo}]
-                        Set routing algorithm (default: shortest_path)
+  --routing-algo [{shortest_path,shortest_path_compressed,tree_subnets,world_topo,world_topo_flat,none}]
+                        Set routing algorithm (default:
+                        shortest_path_compressed)
   --adm-iface-addr [ADM_IFACE_ADDR]
                         Outgoing address for administrative network (default:
                         IP of default route's interface)
-  --cpu-exclusive [CPU_EXCLUSIVE]
+  --cpu-exclusive, --no-cpu-exclusive
                         Setup exclusive access to a single CPU core for each
-                        virtual host (default: True)
+                        virtual host (default: False)
+  --parallel-vhost-creation, --no-parallel-vhost-creation
+                        Enable parallel vhost creation
+  --max-parallel-workers [MAX_PARALLEL_WORKERS]
+                        Set maximum amount of parallel workers to be launched
+                        in parallel vhost creation mode
+  --geneve-tunnels, --no-geneve-tunnels
+                        Use geneve tunnels for communication between real
+                        hosts
+  --docker, --no-docker
+                        Use docker images to run client code
+  --docker-image [DOCKER_IMAGE]
+                        Docker image to be used in Docker mode.
+  --docker-storage-bind [DOCKER_STORAGE_BIND]
+                        Real host directory bind to be used for external
+                        storage (use {host} for vhost name) in Docker mode
+  --rest-api, --no-rest-api
+                        Enable REST API adm UI (experimental)
+  --rest-api-port REST_API_PORT
+                        REST API adm UI port (default: 8888) (experimental)
 ```
 
 Considerations, caveats and bugs:
@@ -139,13 +465,19 @@ Considerations, caveats and bugs:
     * `h{n}`: end nodes. Must be connected to a single virtual node (node degree equals 1), which must be an intermediate switch. The prefix letter `h` may be changed using the `--node-name-prefix` argument.
     * `s{n}`: intermediate switches. Must only be connected to a world backbone switch and an end node (node degree equals 2).
     * `s{n}-{ccTLD}`: world backbone switch for country `{ccTLD}`. Must be connected to every other world backbone switch (node degree equals to the number of countries plus the number of intermediate switches for that country).
-Additionally, virtual nodes **must** define a `country` property to be able to properly identify them.
-This is achieved by using the `set-node-property` instruction in code before executing `build-network`.
-
+  Additionally, virtual nodes **must** define a `country` property to be able to properly identify them.
+  This is achieved by using the `set-node-property` instruction in code before executing `build-network`.
 * Using `--routing-algo tree_subnets` on a graph with loops may result in SherlockFog hanging.
-* Using `--adm-iface-addr` with an address that corresponds to a different network interface than the default route that is used to connect to the hosts will result in the administrative network not being able to connect to any virtual node.
-* Macvlan doesn't work over non-Ethernet interfaces (e.g. InfiniBand or the loopback interface), as it requires a MAC address.
-* SherlockFog **does not** support IPv6 (yet).
+* The difference between `--routing-algo shortest_path_compressed` and `--routing-algo shortest_path` is that the compressed version will try to generate the least amount of rules that explicitly cover the address ranges for each of the IP addresses that are reachable from a given node.
+The non-compressed version, on the other hand, will specifically generate one rule per reachable IP address, which might result in long initialization times.
+* Using `--adm-iface-addr` with an address that corresponds to a different network interface than the default route that is used to connect to the hosts, but with `--geneve-tunnels` disabled, it will result in the administrative network not being able to connect to any virtual node.
+* By default, `--parallel-vhost-creation` is enabled.
+When using that mode, SherlockFog creates a pool of SSH sessions upon connection to each of the real hosts.
+The default `MaxSessions` value in most Linux distributions might be too low to handle the amount of concurrent sessions if the value of the `--max-parallel-workers` variable is too high.
+This value might have to be increased in each of the nodes SSH host configuration to handle concurrency appropriately.
+* Macvlan doesn't work over non-Ethernet interfaces (e.g. InfiniBand or the loopback interface), as it multiplexes MAC addresses.
+* On the other hand, `--geneve-tunnels` works with several types of interfaces, but it requires a higher MTU in order to encapsulate the standard 1500 bytes for Ethernet.
+* SherlockFog **does not** support IPv6.
 
 The Scripting Language
 ======================
@@ -156,76 +488,51 @@ The only control structure is the `for` command, which can be nested.
 The execution environment (class `ExecutionEnvironment`) keeps track of the state variables of the current scope and the topology graph.
 There is no conditional execution, which has to be handled using external scripts.
 
-A syntactically correct *fog* program conforms to the following EBNF grammar:
+A syntactically correct *fog* program conforms to a list of commands, a `for` declaration, a single-line comment or an empty line.
+
+`for` declarations may execute a single command or span over a command block.
+
+`for id in range do cmd` &#8594; Executes `cmd` over the range specified by `range`.
+Use `{id}` to replace the current iterator value in `cmd`.
+The range specified by `range` may be defined using one of several formats:
+
+- `start..end`: from `start` to `end`, not including the latter.
+   Accepted values are integers (range does not include `end`) or characters (range includes `end`).
+- `stat..end..step`: optionally incrementing each step by `step`.
+- Python lists, e.g. `[3, 6, 'A', 7]`.
+
+Similarly, a multiline for is defined as follows:
 
 ```
-	Program       = { line | for | comment | eol };
-
-	line          = spaces, command, eol
-	command       = for_cmd | def_cmd | let_cmd | connect_cmd | set_delay_cmd |
-	                set_bw_cmd | set_nprop_cmd | shell_cmd | shelladm_cmd |
-	                buildnet_cmd | savegraph_cmd | include_cmd |
-	                run_cmd, runas_cmd, runadm_cmd;
-	comment       = spaces, "#", text, eol;
-	for_decl      = "for", space, id, space, "in", range, space, "do";
-	for_cmd       = for_decl, space, command;
-	for           = for_decl, eol, Program, "end for";
-	range         = number, "..", number, [ "..", number ];
-
-	def_cmd       = "def", space, id, [ space, ip_addr ];
-	let_cmd       = "let", space, id, space, expr;
-	connect_cmd   = "connect", space, id, space, id, [ space, expr ],
-	                { space, kwarg };
-	set_delay_cmd = "set-delay", space, [ at ], ( link | all ), rate;
-	set_bw_cmd    = "set-bandwidth", space, [ at ], ( link | all ), rate;
-	set_nprop_cmd = "set-node-property", space, id, space, id, space, value;
-	savegraph_cmd = "save-graph", space, value;
-	include_cmd   = "include", space, value;
-	shell_cmd     = "shell", [ space, id ];
-	shelladm_cmd  = "shelladm";
-	buildnet_cmd  = "build-network";
-	run_cmd       = "run", space, id, space, value;
-	runas_cmd     = "runas", space, id, space, id, space, value;
-	runadm_cmd    = "runadm", space, value;
-
-	link          = id, space, id;
-	ip_addr       = { digit }, ".", { digit }, ".", { digit }, ".", { digit };
-	at            = "at=", number, space;
-	number        = digit_nonzero, { "0" | digit_nonzero };
-	digit_nonzero = "[1-9]";
-	kwarg         = id, "=", expr;
-	value         = ? all visible characters ? - " ";
-	id            = "[A-Za-z_]", { "[0-9A-Za-z_-]" };
-	expr          = "[0-9A-Za-z_]", { "[0-9A-Za-z_-]" };
-	all           = "all";
-	spaces        = "[ \t]+";
-	space         = " ";
-	eol           = "\n";
+for id in range do
+  cmdblock
+end for
 ```
 
-## Overview
+where `cmdblock` is any valid list of fog commands.
 
-The language has nested block scopes, but each command is only matched within a single line.
+Comments start with any number of whitespace characters, followed by a `#` and an arbitrary string.
+
+Finally, the accepted commands are described in the next section.
+
+## Command Overview
+
 The following commands are defined:
 
 * `def vnode`: defines a new virtual node called `vnode`.
 This instruction comprises the creation of a container with the same name in one of the hosts of the real host pool and adding it to the topology.
-The container includes:
-    * A network namespace with a loopback interface.
+Unless specified, SherlockFog will try to connect to `{nextRealHost}` to instantiate the vnode, taking an entry from the real host list.
+The container defines:
+  * A network namespace with a loopback interface.
 	* A cgroup (assigning a CPU core for exclusive access if that option is enabled).
 	* An UTS namespace.
-An SSH server will also be started automatically on the newly created container.
+In non-Docker mode, an SSH server will also be started automatically on the newly created container.
 
 * `let var value`: defines a syntactic replacement for all bounded occurrences of the `{var}` expression to `value` in the current execution context (block). 
 
-* `for var in start..end..step do cmd`: executes `cmd` in a loop, binding `var` to each value specified by the range definition `start..end..step`.
-    * Explicit Python-like lists of literals may be used instead of the range definition, e.g. `[3, 6, 7, 'A']`.
-	* `cmd` may be replaced by a multi-line command list, which will be bound to its own execution context (inheriting previously defined variables).
-In this case, the command list must terminate with an `end for` stanza.
-	
 * `include file`: reads and executes every line in `file` in the current execution context.
 Paths are relative to the current working directory.
-	
+
 * `runas vnode user cmd`: executes `cmd` as user `user` in node `vnode`.
 The `cmd` argument is piped through bash, thus allowing output redirections and variable substitutions.
 	
@@ -241,21 +548,22 @@ This commands accept bandwidth definitions using the same notation as `tc` (e.g.
 This instruction defines new virtual interfaces in `vnode1` and `vnode2`, assigning IP addresses from a newly unassigned P2P subnet to both endpoints.
 IP assignment is performed deterministically by taking a P2P subnet from the address pool in sequential order.
 Then, the first address of that subnet will be assigned to `vnode1` and the second to `vnode2`.
-	
+The `delay` notation is the same as in the `set-delay` command (i.e. same notation as that of `tc`).
+
 * `build-network`: defines the routing and `ARP` tables in every previously defined virtual node and topology.
 The algorithm that is used to generate these rules depends on the value of the `--routing-algo` option.
-Failing to execute this command results in the virtual network not being able to route traffic unless a set of rules is defined manually.
+Failing to execute this command results in the virtual network not being able to route traffic unless the required routes are configured manually.
 It also defines the containers' `/etc/hosts` file to be able to resolve the names of every node in the network.
 Note that every container should have the same version of this file, but it must be replicated to be bound to each network namespace.
 This operation is performed automatically by this command.
-	
+
 * `save-graph filename`: saves the current topology to `filename`.
 This command makes use of NetworkX and supports every format that is supported by this module.
 Please refer to its [documentation](https://networkx.github.io/documentation/stable/) for more details.
-	
+
 * `set-node-property vnode prop value`: defines in `vnode` a node property with name `prop` and value `value`.
 These properties might be used by static routing algorithms to implement a non-standard model (e.g. `world_topo`).
-	
+
 * `shell vnode`: starts a shell in virtual node `vnode`, or in the coordinator if unspecified.
 
 * `shelladm`: starts a shell in the administrative virtual node.
@@ -284,10 +592,101 @@ A few examples follow:
     * `run n0 {pwd}/myscript.py` &#8594; `{pwd}` resolves to the current working directory of the coordinator (equivalent to running the `pwd` command locally).
 			This is useful to find scripts in a directory tree which is shared by all physical nodes.
 
+## Inline Python Code
+
+In addition to the bracket syntax mentioned in the previous section, inline Python code can be included in any section of a command or argument.
+The syntax for inline code is `{{ expr }}`, where `expr` is any valid Python expression that can be passed to `eval`, including (only) the following built-ins: `sum`, `min`, `max`, `len`, `oct`, `chr`, `ord`, `ascii`, `float`, `int`, `str`, `bool`, `list`, `tuple`, `dict`.
+Access to variables is limited to those defined in the current execution scope (e.g. `let` variables or `for` iterators).
+
 ## Topology Navigation
 
-As mentioned in the previous section, it is possible to navigate topology objects in command substitutions.
-This allows, for example, to determine the IP address of an interface or which node (or nodes) and connected directly.
+As mentioned in the section about the macro system, it is possible to navigate topology objects in command substitutions.
+This allows, for example, to determine the IP address of an interface or which node (or nodes) are connected directly.
 Valid node attributes include:
 
 * `{node.veth0.ip}`: resolves to the IP address of the `veth0` virtual interface of virtual node `node`.
+* `{node.default_iface.mac}`: similarly, but using `default_iface` to point to the default (i.e. first) interface, if the name is not known.
+* `{node.veth0.endpoint.ip}`: resolves to the IP address of the interface that is connected to `node` via the `veth0` interface.
+  Beware that if `veth0` is not connected anywhere, this substitution will raise an exception.
+
+## Hello, World!
+
+Running an simple emulation using SherlockFog requires at minimum to define the following parameters:
+
+* An experiment script
+* Unfettered, non-interactive SSH access as the root user to one or more physical nodes.
+
+The following annotated experiment script can be used to instantiate a 3-node topology and send pings from `n0` to the rest of the nodes:
+
+```
+def n0                   # Define nodes n0,
+def n1                   # ... n1 and ...
+def n2                   # n2
+
+# Given the `real-host-list` (see below), n0 will be instantiated
+# on the first given address, n1 on the second and so on ...
+
+connect n0 n1 0.2ms      # Connect n0 to n1 with a 0.2ms link
+connect n1 n2 0.2ms      # Ditto n1 to n2
+connect n0 n2 0.2ms      # Ditto n0 to n2
+
+# The previous topology yields a "triangle" where each link has
+# a latency of 0.2ms:
+#
+#       n1
+#      /|
+#    n0 |                  Latency is 0.2ms on every link!
+#     \ |
+#      \|
+#      n2
+
+set-bandwidth all 10Mbps # Set bandwidth to 10Mbps on all links
+
+build-network            # Build routing, ARP tables and
+                         # static name resolution
+
+# Note that build-network is REQUIRED to have a proper network.
+# It can be ommitted, but the network configuration on each node
+# would need to be provided by the user in that case.
+#
+# Additional virtual nodes can be `def`ined after running build-network,
+# but won't trigger any changes to already-configured nodes.
+# It is thus recommended to run this command after every node has
+# been defined.
+
+run n0 ping -c5 n1 >&2   # Send 5 ICMP packets n0->n1
+run n0 ping -c5 n2 >&2   # Send 5 ICMP packets n0->n2
+
+# Note that the command passed after `run n0` is directly passed to
+# the shell, it could contain pipes, redirections and expansions.
+#
+# Additionally, host names can be used instead of IP addresses if
+# static name resolution is used.
+```
+
+The list of physical nodes (`real-host-list`) is simply a list of IP addresses which is fed to the tool as required to spawn virtual hosts.
+The physical addresses can be repeated to indicate that several virtual hosts are to be spawned on the same physical host.
+There must be enough nodes (lines) in the list to cover all of the virtual nodes that need to be spawned throughout the experiment.
+
+**Please note** that localhost (127.0.0.1) cannot be used, use an actual address of the local machine instead.
+
+Let's suppose we want to run this experiment on our local machine, which has an external IP address 192.168.1.10.
+A list of physical nodes for the previous example, stored in the `hosts` file, could look like this:
+
+```
+192.168.1.10
+192.168.1.10
+192.168.1.10
+```
+
+If the experiment script is called `hello_world.fog`, assuming SherlockFog is on the user path, it can be executed as follows:
+
+```
+# sherlockfog.py --real-host-list hosts hello_world.fog
+```
+
+Useful tips:
+
+* Use `--debug` to see which exact commands are being executed on the physical hosts.
+* If the MTU of the network is big enough (e.g. bigger than 2000), consider always passing `--geneve-tunnels` instead of using Macvlan mode.
+* For bigger networks (i.e. more than 100 virtual nodes), consider passing a bigger value to `--max-parallel-workers`, but beware of any SSH connection limits.

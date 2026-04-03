@@ -1,0 +1,14 @@
+let numNodes 4
+let lat 0.2
+
+for i in 0..{numNodes} do def n{i}
+
+for i in 0..{numNodes} do
+    connect n{i} n{{(i + 1) % numNodes}} {lat}ms
+end for
+
+build-network
+
+#include /home/mgeier/sherlockfog-testing/test/test_exps/test_watts_strogatz_3_07.fog
+
+shelladm

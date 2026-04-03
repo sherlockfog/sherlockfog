@@ -1,0 +1,13 @@
+- job_name: bitcoind        
+  static_configs: 
+  - targets:      
+{% for host in hosts %}      
+    - {{ host }}  
+{% endfor %}      
+  relabel_configs:
+  - source_labels: [__address__]         
+    target_label: instance   
+  - source_labels: [__address__]         
+    regex: '(.*)' 
+    target_label: __address__
+    replacement: '${1}:8334'

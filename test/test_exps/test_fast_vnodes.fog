@@ -1,0 +1,16 @@
+let numNodes 4
+
+#### node def
+for n in 0..{numNodes} do def n{n} {nextRealHost}
+
+for i in 1..{numNodes} do connect n0 n{i}
+
+#### build#
+build-network
+
+#waitall
+#shell n0
+#ping n0 n1
+
+ping all
+shelladm

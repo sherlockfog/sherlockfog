@@ -1,0 +1,14 @@
+let numNodes 5
+let lat 0.05
+
+for i in 0..{numNodes} do def n{i}
+
+for i in 1..{numNodes} do
+    connect n0 n{i} {lat}ms
+end for
+
+build-network
+
+for n in {hosts} do
+	run {n} netns {n} ls 2>&1
+end for

@@ -19,5 +19,5 @@ set-bandwidth all 100mbps
 build-network
 
 # run ping in adm network
-#for h in 0..{graphSize} do runadm h{h} as mgeier ping -c 1 h{h}
+#for h in 0..{graphSize} do runadm ping -c 1 h{h}
 shelladm

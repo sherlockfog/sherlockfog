@@ -1,0 +1,61 @@
+global:
+  scrape_interval: 60s
+scrape_configs:
+- job_name: prometheus
+  static_configs:
+  - targets:
+    - localhost:9090
+- job_name: nodes
+  static_configs:
+  - targets:
+{% for host in hosts %}
+    - {{ host }}
+{% endfor %}
+  relabel_configs:
+  - source_labels: [__address__]
+    target_label: instance
+  - source_labels: [__address__]
+    regex: '(.*)'
+    target_label: __address__
+    replacement: '${1}:9100'
+- job_name: ping_probes
+  metrics_path: /probe
+  static_configs:
+  - targets:
+{% for host in hosts %}
+    - {{ host }}
+{% endfor %}
+  relabel_configs:
+  - source_labels: [__address__]
+    target_label: __param_target
+  - source_labels: [__param_target]
+    target_label: instance
+  - target_label: __address__
+    replacement: 127.0.0.1:9605
+- job_name: pings
+  static_configs:
+  - targets:
+{% for host in hosts %}
+    - {{ host }}
+{% endfor %}
+  relabel_configs:
+  - source_labels: [__address__]
+    target_label: instance
+  - source_labels: [__address__]
+    regex: '(.*)'
+    target_label: __address__
+    replacement: '${1}:9605'
+
+{% include 'user-exporters.yml.j2' ignore missing %}
+
+{% if not internal %}
+
+- job_name: 'federate'
+
+  honor_labels: true
+  metrics_path: '/federate'
+
+  static_configs:
+    - targets:
+      - {{ exposed_adm_endpoint }}:9090
+{% endif %}

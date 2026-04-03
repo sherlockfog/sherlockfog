@@ -1,0 +1,5 @@
+def n0
+def n1
+connect n0 n1 0.2ms
+build-network
+shelladm

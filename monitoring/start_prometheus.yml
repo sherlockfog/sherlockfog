@@ -1,0 +1,214 @@
+---
+
+- name: Kill all existing instances of prometheus and scrapers
+  hosts: all
+  vars:
+    prometheus_bin: "prometheus"
+    node_exporter_bin: "node_exporter"
+    fping_exporter_bin: "fping-exporter_linux_amd64"
+
+  tasks:
+    - name: Kill all prometheus, node_exporter, fping-exporter
+      shell: "killall {{ prometheus_bin }} {{ node_exporter_bin }} {{ fping_exporter_bin }} --wait"
+      ignore_errors: true
+
+- name: Initialize prometheus (internal adm)
+  hosts: monitor
+  vars:
+    # FIXME avoid repeating variables from previous playbook
+    prometheus_base_path: "/tmp/monitoring"
+    prometheus_data: "{{ prometheus_base_path }}/data/"
+    prometheus_logs: "{{ prometheus_base_path }}/log/"
+    prometheus_config: "{{ prometheus_base_path }}/prometheus.yml"
+    prometheus_bin: "prometheus"
+    prometheus_flags: "--config.file=\"{{ prometheus_config }}\" --storage.tsdb.path=\"{{ prometheus_data }}\""
+    node_exporter_bin: "node_exporter"
+    node_exporter_flags: "--collector.disable-defaults --collector.netdev"
+    fping_exporter_bin: "fping-exporter_linux_amd64"
+    fping_exporter_flags: ""
+    exposed_adm_gw: "10.69.0.1"
+    exposed_adm_endpoint: "10.69.0.2"
+
+  tasks:
+    - name: Set internal fact
+      set_fact:
+        internal: yes
+
+    - name: Gather experiment host list in adm interface
+      shell: "ip netns exec adm getent hosts | awk '{print $2}'"
+      register: _raw_host_list
+
+    - name: Fail if SherlockFog adm NS not found
+      fail:
+        msg: "adm NS not found, --use-adm-ns missing?"
+      when: _raw_host_list.rc != 0
+
+    - name: Parse experiment host list
+      set_fact:
+        hosts: "{{ _raw_host_list.stdout.splitlines()|reject(\"==\",\"localhost\")|list }}"
+
+    - name: Clean old monitoring configuration
+      file:
+        path: "{{ prometheus_base_path }}"
+        state: absent
+
+    - name: Create monitoring base path & logs location
+      file:
+        path: "{{ prometheus_logs }}"
+        state: directory
+        recurse: yes
+
+    - name: Generate prometheus configuration
+      template:
+        src: prometheus.yml.j2
+        dest: "{{ prometheus_config }}"
+
+    - name: Expose adm gateway
+      shell: "./expose_adm_iface.sh {{ exposed_adm_gw }}"
+      delegate_to: localhost
+
+    # Add adm and exp hosts to hostvars from this point on, then delegate to adm host
+    - name: Add adm to hostvars
+      add_host:
+        name: gw
+        ansible_host: "{{ exposed_adm_endpoint }}"
+        groups: adm
+
+    - name: Add exp hosts to hostvars
+      add_host:
+        name: "{{ item }}"
+        ansible_host: "{{ item }}"
+        ansible_ssh_common_args: "-J {{ exposed_adm_endpoint }}"
+        groups: exp
+      with_items: "{{ hosts }}"
+
+- name: Start prometheus (internal adm)
+  hosts: adm
+  vars:
+    # FIXME avoid repeating variables from previous playbook
+    prometheus_base_path: "/tmp/monitoring"
+    prometheus_data: "{{ prometheus_base_path }}/data/"
+    prometheus_logs: "{{ prometheus_base_path }}/log/"
+    prometheus_config: "{{ prometheus_base_path }}/prometheus.yml"
+    prometheus_bin: "prometheus"
+    prometheus_flags: "--config.file=\"{{ prometheus_config }}\" --storage.tsdb.path=\"{{ prometheus_data }}\""
+    node_exporter_bin: "node_exporter"
+    node_exporter_flags: "--collector.disable-defaults --collector.netdev"
+    fping_exporter_bin: "fping-exporter_linux_amd64"
+    fping_exporter_flags: ""
+    exposed_adm_gw: "10.69.0.1"
+    exposed_adm_endpoint: "10.69.0.2"
+
+  tasks:
+    - name: Daemonize prometheus in adm
+      shell: "setsid {{ prometheus_bin }} {{ prometheus_flags }} >{{ prometheus_logs }}/prometheus.log 2>&1 < /dev/null &"
+
+    - name: Daemonize node_exporter in adm
+      shell: "setsid {{ node_exporter_bin }} {{ node_exporter_flags }} >/dev/null 2>&1 < /dev/null &"
+
+    - name: Daemonize fping-exporter in adm
+      shell: "setsid {{ fping_exporter_bin }} {{ fping_exporter_flags }} >/dev/null 2>&1 < /dev/null &"
+
+- name: Generate scripts in physical nodes
+  hosts: physnodes
+
+  tasks:
+    - name: Generate script to initialize fping probes in virtual nodes
+      copy:
+        content: |
+          #!/bin/bash
+          for i in {{ groups['exp'] | join(" ") }}; do
+            curl http://localhost:9605/probe?target=$i &
+          done
+        dest: "/tmp/ansible_initialize_fping_probes.sh"
+        mode: 0755
+
+- name: Start exporters (internal adm)
+  hosts: exp
+  serial: 100
+  vars:
+    # FIXME avoid repeating variables from previous playbook
+    prometheus_base_path: "/tmp/monitoring"
+    prometheus_data: "{{ prometheus_base_path }}/data/"
+    prometheus_logs: "{{ prometheus_base_path }}/log/"
+    prometheus_config: "{{ prometheus_base_path }}/prometheus.yml"
+    prometheus_bin: "prometheus"
+    prometheus_flags: "--config.file=\"{{ prometheus_config }}\" --storage.tsdb.path=\"{{ prometheus_data }}\""
+    node_exporter_bin: "node_exporter"
+    node_exporter_flags: "--collector.disable-defaults --collector.netdev"
+    fping_exporter_bin: "fping-exporter_linux_amd64"
+    fping_exporter_flags: ""
+    exposed_adm_gw: "10.69.0.1"
+    exposed_adm_endpoint: "10.69.0.2"
+
+  tasks:
+    - name: Launch node_exporters inside virtual nodes
+      shell: "setsid {{ node_exporter_bin }} {{ node_exporter_flags }} >/dev/null 2>&1 < /dev/null &"
+      # We don't care about the results, just run in parallel
+      async: 600
+      poll: 0
+
+    - name: Launch fping-exporters inside virtual nodes
+      shell: "setsid {{ fping_exporter_bin }} {{ fping_exporter_flags }} >/dev/null 2>&1 < /dev/null &"
+      # We don't care about the results, just run in parallel
+      async: 600
+      poll: 0
+
+    - name: Initialize fping-exporter probes inside virtual nodes
+      shell: "setsid /tmp/ansible_initialize_fping_probes.sh >/dev/null 2>&1 < /dev/null &"
+      # We don't care about the results, just run in parallel
+      async: 600
+      poll: 0
+
+- name: Initialize prometheus (external)
+  hosts: physnodes
+  vars:
+    prometheus_base_path: "/tmp/monitoring-external"
+    prometheus_data: "{{ prometheus_base_path }}/data/"
+    prometheus_logs: "{{ prometheus_base_path }}/log/"
+    prometheus_config: "{{ prometheus_base_path }}/prometheus.yml"
+    prometheus_bin: "prometheus"
+    prometheus_flags: "--config.file=\"{{ prometheus_config }}\" --storage.tsdb.path=\"{{ prometheus_data }}\""
+    node_exporter_bin: "node_exporter"
+    node_exporter_flags: "--collector.disable-defaults --collector.netdev"
+    exposed_adm_gw: "10.69.0.1"
+    exposed_adm_endpoint: "10.69.0.2"
+  
+  tasks:
+    - name: Reinitialize host list
+      set_fact:
+        hosts: []
+
+    - name: Set external fact
+      set_fact:
+        internal: no
+
+    - name: Gather physical hosts IPs
+      set_fact:
+        hosts: "{{ hosts | default([]) + [ hostvars[inventory_hostname].ansible_host ] }}"
+
+    - name: Clean old monitoring configuration
+      file:
+        path: "{{ prometheus_base_path }}"
+        state: absent
+      when: inventory_hostname == groups['monitor'][0]
+
+    - name: Create monitoring base path & logs location
+      file:
+        path: "{{ prometheus_logs }}"
+        state: directory
+        recurse: yes
+      when: inventory_hostname == groups['monitor'][0]
+
+    - name: Generate prometheus configuration
+      template:
+        src: prometheus.yml.j2
+        dest: "{{ prometheus_config }}"
+      when: inventory_hostname == groups['monitor'][0]
+
+    - name: Daemonize prometheus
+      shell: "setsid {{ prometheus_bin }} {{ prometheus_flags }} >{{ prometheus_logs }}/prometheus.log 2>&1 < /dev/null &"
+      when: inventory_hostname == groups['monitor'][0]
+
+    - name: Launch node_exporters inside physical nodes
+      shell: "setsid {{ node_exporter_bin }} {{ node_exporter_flags }} >/dev/null 2>&1 < /dev/null &"

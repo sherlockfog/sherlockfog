@@ -1,0 +1,72 @@
+let numNodes 4
+let lat 0.2
+
+for i in 0..{numNodes} do def n{i}
+
+for i in 0..{numNodes} do
+    connect n{i} n{{(i + 1) % numNodes}} {lat}ms
+end for
+
+build-network
+
+#include /home/mgeier/sherlockfog-testing/test/test_exps/test_watts_strogatz_3_07.fog
+
+let monitoring_base /tmp/monitoring
+let prometheus_config {monitoring_base}/prometheus.yml
+let prometheus_data {monitoring_base}/data/
+let prometheus_flags --config.file="{prometheus_config}" --storage.tsdb.path="{prometheus_data}"
+#let node_exporter_flags --collector.disable-defaults --collector.diskstats --collector.netclass --collector.netdev --collector.netstat --collector.network_route
+let node_exporter_flags --collector.disable-defaults --collector.netdev
+
+runadm rm -rf {monitoring_base}
+runadm mkdir {monitoring_base}
+runadm echo "global:"                >> {prometheus_config}
+runadm echo "  scrape_interval: 15s" >> {prometheus_config}
+runadm echo "scrape_configs:"        >> {prometheus_config}
+runadm echo "- job_name: prometheus" >> {prometheus_config}
+runadm echo "  static_configs:"      >> {prometheus_config}
+runadm echo "  - targets:"           >> {prometheus_config}
+runadm echo "    - localhost:9090"   >> {prometheus_config}
+runadm echo "- job_name: nodes"      >> {prometheus_config}
+runadm echo "  static_configs:"      >> {prometheus_config}
+runadm echo "  - targets:"           >> {prometheus_config}
+for n in {hosts} do
+	runadm echo "    - {n}:9100"     >> {prometheus_config}
+end for
+runadm echo "- job_name: ping_probes" >> {prometheus_config}
+runadm echo "  metrics_path: /probe"  >> {prometheus_config}
+runadm echo "  static_configs:"       >> {prometheus_config}
+runadm echo "  - targets:"            >> {prometheus_config}
+for n in {hosts} do
+	runadm echo "    - {n}"       >> {prometheus_config}
+end for
+runadm echo "  relabel_configs:"                     >> {prometheus_config}
+runadm echo "  - source_labels: [__address__]"       >> {prometheus_config}
+runadm echo "    target_label: __param_target"       >> {prometheus_config}
+runadm echo "  - source_labels: [__param_target]"    >> {prometheus_config}
+runadm echo "    target_label: instance"             >> {prometheus_config}
+runadm echo "  - target_label: __address__"          >> {prometheus_config}
+runadm echo "    replacement: 127.0.0.1:9605"        >> {prometheus_config}
+runadm echo "- job_name: pings"      >> {prometheus_config}
+runadm echo "  static_configs:"      >> {prometheus_config}
+runadm echo "  - targets:"           >> {prometheus_config}
+for n in {hosts} do
+	runadm echo "    - {n}"      >> {prometheus_config}
+end for
+runadm echo "  relabel_configs:"                     >> {prometheus_config}
+runadm echo "  - source_labels: [__address__]"    >> {prometheus_config}
+runadm echo "    target_label: instance"             >> {prometheus_config}
+runadm echo "  - source_labels: [__address__]"       >> {prometheus_config}
+runadm echo "    regex: '(.*)'"                      >> {prometheus_config}
+runadm echo "    target_label: __address__"          >> {prometheus_config}
+runadm printf "    replacement: '$\x7b1\x7d:9605'"   >> {prometheus_config}
+
+runadm setsid prometheus {prometheus_flags} >/dev/null 2>&1 < /dev/null &
+runadm setsid fping-exporter >/dev/null 2>&1 < /dev/null &
+
+for n in {hosts} do
+	runadm ssh {n} 'setsid node_exporter {node_exporter_flags} >/dev/null 2>&1 < /dev/null &'
+	runadm ssh {n} 'setsid fping-exporter >/dev/null 2>&1 < /dev/null &'
+end for
+
+shelladm

@@ -1,0 +1,42 @@
+[
+    {
+        "Hostname": "n0-adm",
+        "IP": "n0"
+    },
+    {
+        "Hostname": "n1-adm",
+        "IP": "n1"
+    },
+    {
+        "Hostname": "n2-adm",
+        "IP": "n2"
+    },
+    {
+        "Hostname": "n3-adm",
+        "IP": "n3"
+    },
+    {
+        "Hostname": "n4-adm",
+        "IP": "n4"
+    },
+    {
+        "Hostname": "n5-adm",
+        "IP": "n5"
+    },
+    {
+        "Hostname": "n6-adm",
+        "IP": "n6"
+    },
+    {
+        "Hostname": "n7-adm",
+        "IP": "n7"
+    },
+    {
+        "Hostname": "n8-adm",
+        "IP": "n8"
+    },
+    {
+        "Hostname": "n9-adm",
+        "IP": "n9"
+    }
+]

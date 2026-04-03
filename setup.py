@@ -5,7 +5,7 @@ long_description = """SherlockFog: Setup Random Topology on Commodity Hardware""
 
 setup(
     name = "sherlockfog",
-    version = "1.0",
+    version = "2.0",
     author = "Maximiliano Geier",
     author_email = "mgeier@dc.uba.ar",
     url = "https://gitlab.licar.exp.dc.uba.ar/sherlockfog/sherlockfog/",
@@ -21,12 +21,10 @@ setup(
         "Operating System :: Linux",
         "Programming Language :: Python",
         "Programming Language :: Python :: 3",
-        "Programming Language :: Python :: 3.2",
-        "Programming Language :: Python :: 3.3",
-        "Programming Language :: Python :: 3.4",
-        "Programming Language :: Python :: 3.5",
-        "Programming Language :: Python :: 3.6",
         "Programming Language :: Python :: 3.7",
+        "Programming Language :: Python :: 3.8",
+        "Programming Language :: Python :: 3.9",
+        "Programming Language :: Python :: 3.10",
         "Topic :: System :: Networking",
         ],
 
@@ -38,5 +36,6 @@ setup(
         'pexpect',
         'matplotlib',
         'networkx>=2.0',
+        'paramiko>=2.7',
     ]
 )

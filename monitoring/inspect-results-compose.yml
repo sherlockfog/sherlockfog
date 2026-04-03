@@ -1,0 +1,39 @@
+# env vars:
+# PROMETHEUS_DATA: host location of prometheus data files
+# PROMETHEUS_CONF: host location of prometheus.yml config file
+# GRAFANA_DATASOURCES: host location of datasource config files
+# GRAFANA_DASHBOARDS:  host location of dashboard json files
+# GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: in-container path to the home dashboard to use (.json file)
+# cmd example: GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH="/etc/grafana/provisioning/dashboards/bitcoin.json" PROMETHEUS_DATA=~/monitoring-exp-hp4x/monitoring/data PROMETHEUS_CONF=~/monitoring-exp-hp4x/monitoring GRAFANA_DASHBOARDS=./grafana/dashboards GRAFANA_DATASOURCES=./grafana/datasources docker-compose -f inspect-results.yml up
+
+
+version: "3.9"  # optional since v1.27.0
+services:
+  prometheus:
+    image: prom/prometheus
+    container_name: prometheus
+    ports:
+      - "9091:9090"  
+    volumes:
+      - "$PROMETHEUS_DATA:/prometheus"
+      - "$PROMETHEUS_CONF:/etc/prometheus"
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=10y"
+      - "--storage.tsdb.path=/prometheus"
+    expose:
+      - 9090          
+
+  grafana:
+    image: grafana/grafana
+    container_name: grafana
+    environment:
+      - GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH
+    ports:
+      - "3000:3000"
+    volumes:
+      - "$GRAFANA_DATASOURCES:/etc/grafana/provisioning/datasources"
+      - "$GRAFANA_DASHBOARDS:/etc/grafana/provisioning/dashboards"
+    expose:
+      - 3000
+

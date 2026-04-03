@@ -1,0 +1,8 @@
+[all]
+bigxps ansible_host=127.0.0.1
+
+[monitor]
+bigxps
+
+[physnodes]
+bigxps

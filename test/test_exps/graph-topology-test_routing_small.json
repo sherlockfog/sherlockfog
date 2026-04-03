@@ -1,0 +1,18 @@
+[
+    {
+        "Hostname": "n0-adm",
+        "IP": "n0"
+    },
+    {
+        "Hostname": "n1-adm",
+        "IP": "n1"
+    },
+    {
+        "Hostname": "n2-adm",
+        "IP": "n2"
+    },
+    {
+        "Hostname": "n3-adm",
+        "IP": "n3"
+    }
+]

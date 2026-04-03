@@ -1,0 +1,1543 @@
+# vars
+let baseLat 0.2
+let graphSize 512
+
+# nodes
+def n0
+def n1
+def n2
+def n3
+def n4
+def n5
+def n6
+def n7
+def n8
+def n9
+def n10
+def n11
+def n12
+def n13
+def n14
+def n15
+def n16
+def n17
+def n18
+def n19
+def n20
+def n21
+def n22
+def n23
+def n24
+def n25
+def n26
+def n27
+def n28
+def n29
+def n30
+def n31
+def n32
+def n33
+def n34
+def n35
+def n36
+def n37
+def n38
+def n39
+def n40
+def n41
+def n42
+def n43
+def n44
+def n45
+def n46
+def n47
+def n48
+def n49
+def n50
+def n51
+def n52
+def n53
+def n54
+def n55
+def n56
+def n57
+def n58
+def n59
+def n60
+def n61
+def n62
+def n63
+def n64
+def n65
+def n66
+def n67
+def n68
+def n69
+def n70
+def n71
+def n72
+def n73
+def n74
+def n75
+def n76
+def n77
+def n78
+def n79
+def n80
+def n81
+def n82
+def n83
+def n84
+def n85
+def n86
+def n87
+def n88
+def n89
+def n90
+def n91
+def n92
+def n93
+def n94
+def n95
+def n96
+def n97
+def n98
+def n99
+def n100
+def n101
+def n102
+def n103
+def n104
+def n105
+def n106
+def n107
+def n108
+def n109
+def n110
+def n111
+def n112
+def n113
+def n114
+def n115
+def n116
+def n117
+def n118
+def n119
+def n120
+def n121
+def n122
+def n123
+def n124
+def n125
+def n126
+def n127
+def n128
+def n129
+def n130
+def n131
+def n132
+def n133
+def n134
+def n135
+def n136
+def n137
+def n138
+def n139
+def n140
+def n141
+def n142
+def n143
+def n144
+def n145
+def n146
+def n147
+def n148
+def n149
+def n150
+def n151
+def n152
+def n153
+def n154
+def n155
+def n156
+def n157
+def n158
+def n159
+def n160
+def n161
+def n162
+def n163
+def n164
+def n165
+def n166
+def n167
+def n168
+def n169
+def n170
+def n171
+def n172
+def n173
+def n174
+def n175
+def n176
+def n177
+def n178
+def n179
+def n180
+def n181
+def n182
+def n183
+def n184
+def n185
+def n186
+def n187
+def n188
+def n189
+def n190
+def n191
+def n192
+def n193
+def n194
+def n195
+def n196
+def n197
+def n198
+def n199
+def n200
+def n201
+def n202
+def n203
+def n204
+def n205
+def n206
+def n207
+def n208
+def n209
+def n210
+def n211
+def n212
+def n213
+def n214
+def n215
+def n216
+def n217
+def n218
+def n219
+def n220
+def n221
+def n222
+def n223
+def n224
+def n225
+def n226
+def n227
+def n228
+def n229
+def n230
+def n231
+def n232
+def n233
+def n234
+def n235
+def n236
+def n237
+def n238
+def n239
+def n240
+def n241
+def n242
+def n243
+def n244
+def n245
+def n246
+def n247
+def n248
+def n249
+def n250
+def n251
+def n252
+def n253
+def n254
+def n255
+def n256
+def n257
+def n258
+def n259
+def n260
+def n261
+def n262
+def n263
+def n264
+def n265
+def n266
+def n267
+def n268
+def n269
+def n270
+def n271
+def n272
+def n273
+def n274
+def n275
+def n276
+def n277
+def n278
+def n279
+def n280
+def n281
+def n282
+def n283
+def n284
+def n285
+def n286
+def n287
+def n288
+def n289
+def n290
+def n291
+def n292
+def n293
+def n294
+def n295
+def n296
+def n297
+def n298
+def n299
+def n300
+def n301
+def n302
+def n303
+def n304
+def n305
+def n306
+def n307
+def n308
+def n309
+def n310
+def n311
+def n312
+def n313
+def n314
+def n315
+def n316
+def n317
+def n318
+def n319
+def n320
+def n321
+def n322
+def n323
+def n324
+def n325
+def n326
+def n327
+def n328
+def n329
+def n330
+def n331
+def n332
+def n333
+def n334
+def n335
+def n336
+def n337
+def n338
+def n339
+def n340
+def n341
+def n342
+def n343
+def n344
+def n345
+def n346
+def n347
+def n348
+def n349
+def n350
+def n351
+def n352
+def n353
+def n354
+def n355
+def n356
+def n357
+def n358
+def n359
+def n360
+def n361
+def n362
+def n363
+def n364
+def n365
+def n366
+def n367
+def n368
+def n369
+def n370
+def n371
+def n372
+def n373
+def n374
+def n375
+def n376
+def n377
+def n378
+def n379
+def n380
+def n381
+def n382
+def n383
+def n384
+def n385
+def n386
+def n387
+def n388
+def n389
+def n390
+def n391
+def n392
+def n393
+def n394
+def n395
+def n396
+def n397
+def n398
+def n399
+def n400
+def n401
+def n402
+def n403
+def n404
+def n405
+def n406
+def n407
+def n408
+def n409
+def n410
+def n411
+def n412
+def n413
+def n414
+def n415
+def n416
+def n417
+def n418
+def n419
+def n420
+def n421
+def n422
+def n423
+def n424
+def n425
+def n426
+def n427
+def n428
+def n429
+def n430
+def n431
+def n432
+def n433
+def n434
+def n435
+def n436
+def n437
+def n438
+def n439
+def n440
+def n441
+def n442
+def n443
+def n444
+def n445
+def n446
+def n447
+def n448
+def n449
+def n450
+def n451
+def n452
+def n453
+def n454
+def n455
+def n456
+def n457
+def n458
+def n459
+def n460
+def n461
+def n462
+def n463
+def n464
+def n465
+def n466
+def n467
+def n468
+def n469
+def n470
+def n471
+def n472
+def n473
+def n474
+def n475
+def n476
+def n477
+def n478
+def n479
+def n480
+def n481
+def n482
+def n483
+def n484
+def n485
+def n486
+def n487
+def n488
+def n489
+def n490
+def n491
+def n492
+def n493
+def n494
+def n495
+def n496
+def n497
+def n498
+def n499
+def n500
+def n501
+def n502
+def n503
+def n504
+def n505
+def n506
+def n507
+def n508
+def n509
+def n510
+def n511
+
+# edges
+connect n0 n2 0.2ms
+connect n0 n3 0.2ms
+connect n0 n4 0.2ms
+connect n0 n5 0.2ms
+connect n0 n6 0.2ms
+connect n0 n8 0.2ms
+connect n0 n9 0.2ms
+connect n0 n12 0.2ms
+connect n0 n15 0.2ms
+connect n0 n17 0.2ms
+connect n0 n39 0.2ms
+connect n0 n40 0.2ms
+connect n0 n81 0.2ms
+connect n0 n88 0.2ms
+connect n0 n98 0.2ms
+connect n0 n108 0.2ms
+connect n0 n144 0.2ms
+connect n0 n145 0.2ms
+connect n0 n161 0.2ms
+connect n0 n180 0.2ms
+connect n0 n187 0.2ms
+connect n0 n237 0.2ms
+connect n0 n238 0.2ms
+connect n0 n254 0.2ms
+connect n0 n258 0.2ms
+connect n0 n271 0.2ms
+connect n0 n298 0.2ms
+connect n0 n302 0.2ms
+connect n0 n324 0.2ms
+connect n0 n376 0.2ms
+connect n0 n390 0.2ms
+connect n0 n395 0.2ms
+connect n0 n449 0.2ms
+connect n0 n510 0.2ms
+connect n1 n2 0.2ms
+connect n1 n4 0.2ms
+connect n1 n5 0.2ms
+connect n1 n6 0.2ms
+connect n1 n7 0.2ms
+connect n1 n12 0.2ms
+connect n1 n16 0.2ms
+connect n1 n21 0.2ms
+connect n1 n22 0.2ms
+connect n1 n43 0.2ms
+connect n1 n44 0.2ms
+connect n1 n45 0.2ms
+connect n1 n64 0.2ms
+connect n1 n73 0.2ms
+connect n1 n74 0.2ms
+connect n1 n85 0.2ms
+connect n1 n110 0.2ms
+connect n1 n138 0.2ms
+connect n1 n152 0.2ms
+connect n1 n153 0.2ms
+connect n1 n158 0.2ms
+connect n1 n196 0.2ms
+connect n1 n208 0.2ms
+connect n1 n237 0.2ms
+connect n1 n266 0.2ms
+connect n1 n269 0.2ms
+connect n1 n272 0.2ms
+connect n1 n378 0.2ms
+connect n1 n379 0.2ms
+connect n1 n392 0.2ms
+connect n1 n436 0.2ms
+connect n2 n3 0.2ms
+connect n2 n13 0.2ms
+connect n2 n14 0.2ms
+connect n2 n22 0.2ms
+connect n2 n23 0.2ms
+connect n2 n24 0.2ms
+connect n2 n26 0.2ms
+connect n2 n28 0.2ms
+connect n2 n29 0.2ms
+connect n2 n41 0.2ms
+connect n2 n54 0.2ms
+connect n2 n57 0.2ms
+connect n2 n67 0.2ms
+connect n2 n75 0.2ms
+connect n2 n101 0.2ms
+connect n2 n111 0.2ms
+connect n2 n114 0.2ms
+connect n2 n151 0.2ms
+connect n2 n164 0.2ms
+connect n2 n190 0.2ms
+connect n2 n217 0.2ms
+connect n2 n229 0.2ms
+connect n2 n241 0.2ms
+connect n2 n242 0.2ms
+connect n2 n275 0.2ms
+connect n2 n295 0.2ms
+connect n2 n326 0.2ms
+connect n2 n454 0.2ms
+connect n2 n466 0.2ms
+connect n3 n7 0.2ms
+connect n3 n9 0.2ms
+connect n3 n11 0.2ms
+connect n3 n14 0.2ms
+connect n3 n18 0.2ms
+connect n3 n36 0.2ms
+connect n3 n45 0.2ms
+connect n3 n83 0.2ms
+connect n3 n96 0.2ms
+connect n3 n113 0.2ms
+connect n3 n129 0.2ms
+connect n3 n136 0.2ms
+connect n3 n183 0.2ms
+connect n3 n193 0.2ms
+connect n3 n204 0.2ms
+connect n3 n209 0.2ms
+connect n3 n219 0.2ms
+connect n3 n231 0.2ms
+connect n3 n294 0.2ms
+connect n3 n328 0.2ms
+connect n3 n366 0.2ms
+connect n3 n411 0.2ms
+connect n3 n417 0.2ms
+connect n3 n438 0.2ms
+connect n3 n450 0.2ms
+connect n3 n465 0.2ms
+connect n3 n475 0.2ms
+connect n3 n496 0.2ms
+connect n4 n8 0.2ms
+connect n4 n10 0.2ms
+connect n4 n32 0.2ms
+connect n4 n140 0.2ms
+connect n4 n154 0.2ms
+connect n4 n163 0.2ms
+connect n4 n178 0.2ms
+connect n4 n187 0.2ms
+connect n4 n333 0.2ms
+connect n4 n368 0.2ms
+connect n4 n408 0.2ms
+connect n5 n24 0.2ms
+connect n5 n67 0.2ms
+connect n5 n121 0.2ms
+connect n5 n134 0.2ms
+connect n5 n165 0.2ms
+connect n5 n181 0.2ms
+connect n5 n193 0.2ms
+connect n5 n260 0.2ms
+connect n5 n328 0.2ms
+connect n5 n356 0.2ms
+connect n5 n509 0.2ms
+connect n6 n130 0.2ms
+connect n6 n140 0.2ms
+connect n6 n181 0.2ms
+connect n6 n185 0.2ms
+connect n6 n220 0.2ms
+connect n6 n244 0.2ms
+connect n6 n247 0.2ms
+connect n6 n442 0.2ms
+connect n6 n473 0.2ms
+connect n7 n11 0.2ms
+connect n7 n37 0.2ms
+connect n7 n50 0.2ms
+connect n7 n123 0.2ms
+connect n7 n153 0.2ms
+connect n7 n172 0.2ms
+connect n7 n292 0.2ms
+connect n7 n474 0.2ms
+connect n7 n493 0.2ms
+connect n7 n503 0.2ms
+connect n8 n17 0.2ms
+connect n8 n18 0.2ms
+connect n8 n19 0.2ms
+connect n8 n20 0.2ms
+connect n8 n25 0.2ms
+connect n8 n28 0.2ms
+connect n8 n31 0.2ms
+connect n8 n49 0.2ms
+connect n8 n55 0.2ms
+connect n8 n56 0.2ms
+connect n8 n69 0.2ms
+connect n8 n76 0.2ms
+connect n8 n77 0.2ms
+connect n8 n105 0.2ms
+connect n8 n106 0.2ms
+connect n8 n108 0.2ms
+connect n8 n115 0.2ms
+connect n8 n127 0.2ms
+connect n8 n149 0.2ms
+connect n8 n154 0.2ms
+connect n8 n196 0.2ms
+connect n8 n230 0.2ms
+connect n8 n236 0.2ms
+connect n8 n286 0.2ms
+connect n8 n307 0.2ms
+connect n8 n322 0.2ms
+connect n8 n359 0.2ms
+connect n8 n381 0.2ms
+connect n8 n387 0.2ms
+connect n8 n388 0.2ms
+connect n8 n394 0.2ms
+connect n8 n396 0.2ms
+connect n8 n403 0.2ms
+connect n8 n432 0.2ms
+connect n8 n506 0.2ms
+connect n8 n511 0.2ms
+connect n9 n10 0.2ms
+connect n9 n13 0.2ms
+connect n9 n20 0.2ms
+connect n9 n26 0.2ms
+connect n9 n27 0.2ms
+connect n9 n36 0.2ms
+connect n9 n44 0.2ms
+connect n9 n52 0.2ms
+connect n9 n53 0.2ms
+connect n9 n60 0.2ms
+connect n9 n89 0.2ms
+connect n9 n104 0.2ms
+connect n9 n109 0.2ms
+connect n9 n126 0.2ms
+connect n9 n228 0.2ms
+connect n9 n284 0.2ms
+connect n9 n289 0.2ms
+connect n9 n290 0.2ms
+connect n9 n299 0.2ms
+connect n9 n305 0.2ms
+connect n9 n332 0.2ms
+connect n9 n350 0.2ms
+connect n9 n367 0.2ms
+connect n9 n378 0.2ms
+connect n9 n390 0.2ms
+connect n9 n403 0.2ms
+connect n9 n457 0.2ms
+connect n9 n509 0.2ms
+connect n10 n15 0.2ms
+connect n10 n30 0.2ms
+connect n10 n93 0.2ms
+connect n10 n96 0.2ms
+connect n10 n115 0.2ms
+connect n10 n195 0.2ms
+connect n10 n198 0.2ms
+connect n10 n287 0.2ms
+connect n10 n289 0.2ms
+connect n10 n405 0.2ms
+connect n10 n471 0.2ms
+connect n11 n21 0.2ms
+connect n11 n23 0.2ms
+connect n11 n34 0.2ms
+connect n11 n53 0.2ms
+connect n11 n58 0.2ms
+connect n11 n84 0.2ms
+connect n11 n111 0.2ms
+connect n11 n167 0.2ms
+connect n11 n177 0.2ms
+connect n11 n219 0.2ms
+connect n11 n246 0.2ms
+connect n11 n248 0.2ms
+connect n11 n250 0.2ms
+connect n11 n280 0.2ms
+connect n11 n282 0.2ms
+connect n11 n302 0.2ms
+connect n11 n311 0.2ms
+connect n11 n325 0.2ms
+connect n11 n335 0.2ms
+connect n11 n381 0.2ms
+connect n11 n384 0.2ms
+connect n11 n460 0.2ms
+connect n12 n43 0.2ms
+connect n12 n122 0.2ms
+connect n12 n134 0.2ms
+connect n12 n202 0.2ms
+connect n12 n215 0.2ms
+connect n12 n323 0.2ms
+connect n12 n357 0.2ms
+connect n12 n395 0.2ms
+connect n13 n16 0.2ms
+connect n13 n48 0.2ms
+connect n13 n51 0.2ms
+connect n13 n61 0.2ms
+connect n13 n119 0.2ms
+connect n13 n159 0.2ms
+connect n13 n165 0.2ms
+connect n13 n172 0.2ms
+connect n13 n195 0.2ms
+connect n13 n202 0.2ms
+connect n13 n233 0.2ms
+connect n13 n318 0.2ms
+connect n14 n29 0.2ms
+connect n14 n33 0.2ms
+connect n14 n35 0.2ms
+connect n14 n52 0.2ms
+connect n14 n79 0.2ms
+connect n14 n116 0.2ms
+connect n14 n244 0.2ms
+connect n14 n263 0.2ms
+connect n14 n275 0.2ms
+connect n14 n351 0.2ms
+connect n14 n485 0.2ms
+connect n15 n31 0.2ms
+connect n15 n42 0.2ms
+connect n15 n46 0.2ms
+connect n15 n64 0.2ms
+connect n15 n87 0.2ms
+connect n15 n95 0.2ms
+connect n15 n147 0.2ms
+connect n15 n297 0.2ms
+connect n15 n387 0.2ms
+connect n15 n408 0.2ms
+connect n15 n484 0.2ms
+connect n16 n19 0.2ms
+connect n16 n35 0.2ms
+connect n16 n38 0.2ms
+connect n16 n50 0.2ms
+connect n16 n68 0.2ms
+connect n16 n70 0.2ms
+connect n16 n120 0.2ms
+connect n16 n137 0.2ms
+connect n16 n156 0.2ms
+connect n16 n199 0.2ms
+connect n16 n205 0.2ms
+connect n16 n216 0.2ms
+connect n16 n362 0.2ms
+connect n16 n385 0.2ms
+connect n16 n409 0.2ms
+connect n16 n413 0.2ms
+connect n16 n422 0.2ms
+connect n16 n455 0.2ms
+connect n16 n458 0.2ms
+connect n17 n25 0.2ms
+connect n17 n58 0.2ms
+connect n17 n66 0.2ms
+connect n17 n80 0.2ms
+connect n17 n102 0.2ms
+connect n17 n142 0.2ms
+connect n17 n290 0.2ms
+connect n17 n306 0.2ms
+connect n17 n338 0.2ms
+connect n17 n348 0.2ms
+connect n17 n358 0.2ms
+connect n17 n375 0.2ms
+connect n17 n428 0.2ms
+connect n18 n33 0.2ms
+connect n18 n47 0.2ms
+connect n18 n75 0.2ms
+connect n18 n113 0.2ms
+connect n18 n148 0.2ms
+connect n18 n315 0.2ms
+connect n18 n334 0.2ms
+connect n18 n343 0.2ms
+connect n18 n496 0.2ms
+connect n19 n32 0.2ms
+connect n19 n92 0.2ms
+connect n19 n459 0.2ms
+connect n21 n34 0.2ms
+connect n21 n39 0.2ms
+connect n21 n60 0.2ms
+connect n21 n76 0.2ms
+connect n21 n213 0.2ms
+connect n21 n360 0.2ms
+connect n21 n368 0.2ms
+connect n21 n372 0.2ms
+connect n21 n487 0.2ms
+connect n22 n70 0.2ms
+connect n22 n183 0.2ms
+connect n22 n264 0.2ms
+connect n22 n414 0.2ms
+connect n23 n80 0.2ms
+connect n23 n114 0.2ms
+connect n23 n131 0.2ms
+connect n23 n148 0.2ms
+connect n23 n200 0.2ms
+connect n23 n211 0.2ms
+connect n23 n224 0.2ms
+connect n23 n291 0.2ms
+connect n23 n307 0.2ms
+connect n23 n382 0.2ms
+connect n24 n30 0.2ms
+connect n24 n72 0.2ms
+connect n24 n81 0.2ms
+connect n24 n83 0.2ms
+connect n24 n90 0.2ms
+connect n24 n112 0.2ms
+connect n24 n117 0.2ms
+connect n24 n142 0.2ms
+connect n24 n146 0.2ms
+connect n24 n206 0.2ms
+connect n24 n254 0.2ms
+connect n24 n346 0.2ms
+connect n24 n388 0.2ms
+connect n24 n441 0.2ms
+connect n24 n445 0.2ms
+connect n24 n462 0.2ms
+connect n25 n27 0.2ms
+connect n25 n37 0.2ms
+connect n25 n51 0.2ms
+connect n25 n74 0.2ms
+connect n25 n135 0.2ms
+connect n25 n155 0.2ms
+connect n25 n157 0.2ms
+connect n25 n170 0.2ms
+connect n25 n200 0.2ms
+connect n25 n261 0.2ms
+connect n25 n339 0.2ms
+connect n25 n348 0.2ms
+connect n25 n365 0.2ms
+connect n25 n371 0.2ms
+connect n25 n372 0.2ms
+connect n25 n386 0.2ms
+connect n25 n396 0.2ms
+connect n25 n423 0.2ms
+connect n25 n431 0.2ms
+connect n25 n451 0.2ms
+connect n25 n468 0.2ms
+connect n25 n476 0.2ms
+connect n26 n41 0.2ms
+connect n26 n49 0.2ms
+connect n26 n68 0.2ms
+connect n26 n117 0.2ms
+connect n26 n138 0.2ms
+connect n26 n203 0.2ms
+connect n26 n204 0.2ms
+connect n26 n214 0.2ms
+connect n26 n285 0.2ms
+connect n26 n311 0.2ms
+connect n27 n112 0.2ms
+connect n27 n171 0.2ms
+connect n27 n188 0.2ms
+connect n27 n278 0.2ms
+connect n27 n374 0.2ms
+connect n28 n48 0.2ms
+connect n28 n167 0.2ms
+connect n28 n262 0.2ms
+connect n28 n508 0.2ms
+connect n29 n82 0.2ms
+connect n29 n92 0.2ms
+connect n30 n69 0.2ms
+connect n30 n99 0.2ms
+connect n30 n173 0.2ms
+connect n30 n222 0.2ms
+connect n30 n226 0.2ms
+connect n30 n432 0.2ms
+connect n30 n447 0.2ms
+connect n30 n469 0.2ms
+connect n31 n59 0.2ms
+connect n31 n62 0.2ms
+connect n31 n91 0.2ms
+connect n31 n160 0.2ms
+connect n31 n240 0.2ms
+connect n31 n327 0.2ms
+connect n31 n400 0.2ms
+connect n31 n419 0.2ms
+connect n32 n38 0.2ms
+connect n32 n40 0.2ms
+connect n32 n61 0.2ms
+connect n32 n78 0.2ms
+connect n32 n97 0.2ms
+connect n32 n207 0.2ms
+connect n32 n251 0.2ms
+connect n32 n316 0.2ms
+connect n33 n56 0.2ms
+connect n33 n176 0.2ms
+connect n33 n182 0.2ms
+connect n33 n308 0.2ms
+connect n33 n355 0.2ms
+connect n33 n434 0.2ms
+connect n33 n443 0.2ms
+connect n34 n63 0.2ms
+connect n34 n66 0.2ms
+connect n34 n84 0.2ms
+connect n34 n85 0.2ms
+connect n34 n141 0.2ms
+connect n34 n143 0.2ms
+connect n34 n161 0.2ms
+connect n34 n166 0.2ms
+connect n34 n242 0.2ms
+connect n34 n506 0.2ms
+connect n36 n46 0.2ms
+connect n36 n54 0.2ms
+connect n36 n73 0.2ms
+connect n36 n86 0.2ms
+connect n36 n89 0.2ms
+connect n36 n98 0.2ms
+connect n36 n118 0.2ms
+connect n36 n143 0.2ms
+connect n36 n209 0.2ms
+connect n36 n256 0.2ms
+connect n36 n344 0.2ms
+connect n36 n349 0.2ms
+connect n36 n369 0.2ms
+connect n37 n197 0.2ms
+connect n37 n317 0.2ms
+connect n38 n103 0.2ms
+connect n38 n116 0.2ms
+connect n38 n174 0.2ms
+connect n38 n330 0.2ms
+connect n38 n370 0.2ms
+connect n39 n107 0.2ms
+connect n39 n265 0.2ms
+connect n39 n283 0.2ms
+connect n39 n426 0.2ms
+connect n39 n440 0.2ms
+connect n40 n47 0.2ms
+connect n40 n82 0.2ms
+connect n40 n95 0.2ms
+connect n40 n105 0.2ms
+connect n40 n164 0.2ms
+connect n40 n326 0.2ms
+connect n40 n391 0.2ms
+connect n40 n430 0.2ms
+connect n40 n489 0.2ms
+connect n41 n42 0.2ms
+connect n41 n295 0.2ms
+connect n41 n401 0.2ms
+connect n42 n100 0.2ms
+connect n42 n132 0.2ms
+connect n43 n72 0.2ms
+connect n43 n147 0.2ms
+connect n43 n186 0.2ms
+connect n43 n323 0.2ms
+connect n43 n413 0.2ms
+connect n44 n57 0.2ms
+connect n44 n59 0.2ms
+connect n44 n86 0.2ms
+connect n44 n99 0.2ms
+connect n44 n131 0.2ms
+connect n44 n178 0.2ms
+connect n44 n215 0.2ms
+connect n44 n243 0.2ms
+connect n44 n369 0.2ms
+connect n44 n450 0.2ms
+connect n45 n55 0.2ms
+connect n45 n170 0.2ms
+connect n45 n380 0.2ms
+connect n46 n492 0.2ms
+connect n47 n65 0.2ms
+connect n47 n71 0.2ms
+connect n47 n78 0.2ms
+connect n47 n88 0.2ms
+connect n47 n123 0.2ms
+connect n47 n139 0.2ms
+connect n47 n272 0.2ms
+connect n47 n300 0.2ms
+connect n47 n392 0.2ms
+connect n49 n100 0.2ms
+connect n49 n269 0.2ms
+connect n50 n119 0.2ms
+connect n50 n194 0.2ms
+connect n50 n402 0.2ms
+connect n50 n427 0.2ms
+connect n51 n63 0.2ms
+connect n51 n124 0.2ms
+connect n51 n203 0.2ms
+connect n51 n299 0.2ms
+connect n51 n384 0.2ms
+connect n52 n128 0.2ms
+connect n52 n304 0.2ms
+connect n52 n324 0.2ms
+connect n52 n343 0.2ms
+connect n53 n101 0.2ms
+connect n53 n137 0.2ms
+connect n53 n336 0.2ms
+connect n53 n495 0.2ms
+connect n54 n65 0.2ms
+connect n54 n229 0.2ms
+connect n54 n257 0.2ms
+connect n54 n459 0.2ms
+connect n55 n77 0.2ms
+connect n55 n102 0.2ms
+connect n55 n104 0.2ms
+connect n55 n334 0.2ms
+connect n55 n486 0.2ms
+connect n57 n62 0.2ms
+connect n57 n103 0.2ms
+connect n57 n255 0.2ms
+connect n57 n507 0.2ms
+connect n58 n125 0.2ms
+connect n58 n139 0.2ms
+connect n58 n221 0.2ms
+connect n58 n329 0.2ms
+connect n58 n344 0.2ms
+connect n58 n377 0.2ms
+connect n58 n461 0.2ms
+connect n59 n91 0.2ms
+connect n59 n93 0.2ms
+connect n59 n97 0.2ms
+connect n59 n144 0.2ms
+connect n59 n288 0.2ms
+connect n60 n420 0.2ms
+connect n61 n227 0.2ms
+connect n61 n497 0.2ms
+connect n62 n79 0.2ms
+connect n62 n424 0.2ms
+connect n62 n452 0.2ms
+connect n62 n500 0.2ms
+connect n63 n221 0.2ms
+connect n64 n230 0.2ms
+connect n64 n314 0.2ms
+connect n64 n371 0.2ms
+connect n65 n90 0.2ms
+connect n65 n303 0.2ms
+connect n65 n401 0.2ms
+connect n65 n426 0.2ms
+connect n67 n71 0.2ms
+connect n67 n107 0.2ms
+connect n68 n197 0.2ms
+connect n68 n346 0.2ms
+connect n69 n226 0.2ms
+connect n70 n129 0.2ms
+connect n70 n357 0.2ms
+connect n70 n421 0.2ms
+connect n71 n176 0.2ms
+connect n71 n398 0.2ms
+connect n71 n412 0.2ms
+connect n71 n485 0.2ms
+connect n72 n376 0.2ms
+connect n72 n407 0.2ms
+connect n73 n94 0.2ms
+connect n73 n179 0.2ms
+connect n73 n301 0.2ms
+connect n74 n259 0.2ms
+connect n75 n120 0.2ms
+connect n75 n201 0.2ms
+connect n75 n252 0.2ms
+connect n75 n293 0.2ms
+connect n75 n310 0.2ms
+connect n76 n130 0.2ms
+connect n76 n225 0.2ms
+connect n76 n264 0.2ms
+connect n76 n373 0.2ms
+connect n76 n377 0.2ms
+connect n76 n393 0.2ms
+connect n76 n470 0.2ms
+connect n77 n364 0.2ms
+connect n77 n416 0.2ms
+connect n78 n133 0.2ms
+connect n78 n245 0.2ms
+connect n78 n257 0.2ms
+connect n79 n156 0.2ms
+connect n79 n191 0.2ms
+connect n79 n276 0.2ms
+connect n80 n189 0.2ms
+connect n80 n367 0.2ms
+connect n80 n431 0.2ms
+connect n80 n493 0.2ms
+connect n81 n141 0.2ms
+connect n81 n243 0.2ms
+connect n81 n263 0.2ms
+connect n81 n361 0.2ms
+connect n81 n383 0.2ms
+connect n81 n433 0.2ms
+connect n81 n491 0.2ms
+connect n81 n501 0.2ms
+connect n82 n87 0.2ms
+connect n82 n150 0.2ms
+connect n82 n239 0.2ms
+connect n84 n151 0.2ms
+connect n84 n322 0.2ms
+connect n84 n363 0.2ms
+connect n85 n110 0.2ms
+connect n85 n149 0.2ms
+connect n85 n185 0.2ms
+connect n85 n283 0.2ms
+connect n85 n430 0.2ms
+connect n86 n109 0.2ms
+connect n86 n169 0.2ms
+connect n86 n191 0.2ms
+connect n86 n235 0.2ms
+connect n86 n292 0.2ms
+connect n87 n160 0.2ms
+connect n87 n449 0.2ms
+connect n87 n455 0.2ms
+connect n88 n132 0.2ms
+connect n88 n162 0.2ms
+connect n88 n166 0.2ms
+connect n88 n211 0.2ms
+connect n88 n233 0.2ms
+connect n88 n241 0.2ms
+connect n89 n218 0.2ms
+connect n89 n274 0.2ms
+connect n89 n448 0.2ms
+connect n90 n313 0.2ms
+connect n90 n478 0.2ms
+connect n91 n157 0.2ms
+connect n91 n208 0.2ms
+connect n91 n216 0.2ms
+connect n91 n347 0.2ms
+connect n92 n94 0.2ms
+connect n92 n301 0.2ms
+connect n94 n261 0.2ms
+connect n94 n385 0.2ms
+connect n95 n168 0.2ms
+connect n95 n171 0.2ms
+connect n95 n306 0.2ms
+connect n95 n340 0.2ms
+connect n97 n260 0.2ms
+connect n97 n394 0.2ms
+connect n98 n288 0.2ms
+connect n98 n355 0.2ms
+connect n98 n364 0.2ms
+connect n99 n106 0.2ms
+connect n99 n118 0.2ms
+connect n99 n168 0.2ms
+connect n99 n318 0.2ms
+connect n99 n471 0.2ms
+connect n100 n125 0.2ms
+connect n100 n397 0.2ms
+connect n100 n468 0.2ms
+connect n102 n122 0.2ms
+connect n102 n339 0.2ms
+connect n102 n446 0.2ms
+connect n103 n313 0.2ms
+connect n104 n480 0.2ms
+connect n104 n490 0.2ms
+connect n106 n124 0.2ms
+connect n106 n173 0.2ms
+connect n106 n228 0.2ms
+connect n106 n458 0.2ms
+connect n107 n199 0.2ms
+connect n107 n356 0.2ms
+connect n108 n399 0.2ms
+connect n109 n222 0.2ms
+connect n109 n333 0.2ms
+connect n109 n467 0.2ms
+connect n109 n474 0.2ms
+connect n110 n121 0.2ms
+connect n110 n159 0.2ms
+connect n110 n252 0.2ms
+connect n111 n246 0.2ms
+connect n111 n251 0.2ms
+connect n111 n253 0.2ms
+connect n111 n266 0.2ms
+connect n111 n360 0.2ms
+connect n111 n488 0.2ms
+connect n112 n133 0.2ms
+connect n112 n158 0.2ms
+connect n112 n198 0.2ms
+connect n112 n217 0.2ms
+connect n112 n225 0.2ms
+connect n112 n319 0.2ms
+connect n113 n150 0.2ms
+connect n113 n214 0.2ms
+connect n113 n256 0.2ms
+connect n113 n354 0.2ms
+connect n113 n446 0.2ms
+connect n113 n451 0.2ms
+connect n113 n478 0.2ms
+connect n113 n482 0.2ms
+connect n115 n135 0.2ms
+connect n115 n192 0.2ms
+connect n115 n277 0.2ms
+connect n115 n429 0.2ms
+connect n116 n249 0.2ms
+connect n117 n190 0.2ms
+connect n117 n341 0.2ms
+connect n117 n370 0.2ms
+connect n118 n267 0.2ms
+connect n119 n374 0.2ms
+connect n122 n126 0.2ms
+connect n122 n128 0.2ms
+connect n122 n155 0.2ms
+connect n122 n169 0.2ms
+connect n122 n194 0.2ms
+connect n122 n255 0.2ms
+connect n122 n316 0.2ms
+connect n122 n400 0.2ms
+connect n123 n236 0.2ms
+connect n124 n380 0.2ms
+connect n125 n136 0.2ms
+connect n125 n186 0.2ms
+connect n125 n276 0.2ms
+connect n125 n342 0.2ms
+connect n126 n127 0.2ms
+connect n126 n184 0.2ms
+connect n126 n504 0.2ms
+connect n126 n505 0.2ms
+connect n127 n347 0.2ms
+connect n129 n152 0.2ms
+connect n129 n163 0.2ms
+connect n129 n175 0.2ms
+connect n129 n182 0.2ms
+connect n129 n298 0.2ms
+connect n129 n473 0.2ms
+connect n131 n268 0.2ms
+connect n133 n218 0.2ms
+connect n134 n270 0.2ms
+connect n135 n481 0.2ms
+connect n135 n488 0.2ms
+connect n136 n232 0.2ms
+connect n136 n245 0.2ms
+connect n136 n362 0.2ms
+connect n136 n406 0.2ms
+connect n137 n189 0.2ms
+connect n137 n207 0.2ms
+connect n137 n210 0.2ms
+connect n137 n281 0.2ms
+connect n137 n366 0.2ms
+connect n137 n437 0.2ms
+connect n137 n492 0.2ms
+connect n138 n267 0.2ms
+connect n138 n391 0.2ms
+connect n139 n145 0.2ms
+connect n140 n291 0.2ms
+connect n140 n498 0.2ms
+connect n142 n146 0.2ms
+connect n142 n224 0.2ms
+connect n142 n501 0.2ms
+connect n143 n223 0.2ms
+connect n143 n274 0.2ms
+connect n144 n177 0.2ms
+connect n144 n206 0.2ms
+connect n144 n247 0.2ms
+connect n144 n340 0.2ms
+connect n144 n342 0.2ms
+connect n144 n389 0.2ms
+connect n144 n407 0.2ms
+connect n145 n162 0.2ms
+connect n146 n312 0.2ms
+connect n148 n179 0.2ms
+connect n148 n250 0.2ms
+connect n148 n265 0.2ms
+connect n148 n319 0.2ms
+connect n151 n240 0.2ms
+connect n154 n180 0.2ms
+connect n156 n336 0.2ms
+connect n157 n476 0.2ms
+connect n157 n483 0.2ms
+connect n160 n188 0.2ms
+connect n160 n268 0.2ms
+connect n160 n382 0.2ms
+connect n161 n175 0.2ms
+connect n161 n270 0.2ms
+connect n161 n327 0.2ms
+connect n161 n433 0.2ms
+connect n161 n487 0.2ms
+connect n165 n205 0.2ms
+connect n167 n258 0.2ms
+connect n167 n337 0.2ms
+connect n167 n464 0.2ms
+connect n169 n192 0.2ms
+connect n169 n239 0.2ms
+connect n169 n280 0.2ms
+connect n169 n330 0.2ms
+connect n169 n383 0.2ms
+connect n169 n419 0.2ms
+connect n169 n442 0.2ms
+connect n169 n481 0.2ms
+connect n170 n231 0.2ms
+connect n170 n285 0.2ms
+connect n170 n321 0.2ms
+connect n170 n422 0.2ms
+connect n170 n440 0.2ms
+connect n173 n174 0.2ms
+connect n173 n315 0.2ms
+connect n173 n406 0.2ms
+connect n174 n234 0.2ms
+connect n175 n220 0.2ms
+connect n175 n287 0.2ms
+connect n175 n296 0.2ms
+connect n180 n332 0.2ms
+connect n181 n184 0.2ms
+connect n181 n201 0.2ms
+connect n181 n212 0.2ms
+connect n181 n213 0.2ms
+connect n181 n271 0.2ms
+connect n181 n282 0.2ms
+connect n181 n325 0.2ms
+connect n181 n410 0.2ms
+connect n182 n363 0.2ms
+connect n183 n429 0.2ms
+connect n186 n379 0.2ms
+connect n186 n397 0.2ms
+connect n186 n444 0.2ms
+connect n187 n444 0.2ms
+connect n188 n281 0.2ms
+connect n188 n399 0.2ms
+connect n189 n210 0.2ms
+connect n189 n279 0.2ms
+connect n190 n314 0.2ms
+connect n190 n477 0.2ms
+connect n192 n309 0.2ms
+connect n192 n466 0.2ms
+connect n195 n309 0.2ms
+connect n196 n232 0.2ms
+connect n197 n284 0.2ms
+connect n199 n227 0.2ms
+connect n200 n361 0.2ms
+connect n201 n223 0.2ms
+connect n201 n253 0.2ms
+connect n201 n303 0.2ms
+connect n201 n486 0.2ms
+connect n201 n497 0.2ms
+connect n201 n511 0.2ms
+connect n203 n212 0.2ms
+connect n205 n499 0.2ms
+connect n208 n235 0.2ms
+connect n208 n352 0.2ms
+connect n212 n503 0.2ms
+connect n213 n238 0.2ms
+connect n216 n273 0.2ms
+connect n216 n359 0.2ms
+connect n217 n353 0.2ms
+connect n219 n308 0.2ms
+connect n219 n417 0.2ms
+connect n220 n310 0.2ms
+connect n220 n335 0.2ms
+connect n220 n404 0.2ms
+connect n222 n279 0.2ms
+connect n222 n320 0.2ms
+connect n222 n329 0.2ms
+connect n223 n248 0.2ms
+connect n223 n349 0.2ms
+connect n223 n435 0.2ms
+connect n228 n249 0.2ms
+connect n228 n273 0.2ms
+connect n228 n286 0.2ms
+connect n228 n365 0.2ms
+connect n228 n424 0.2ms
+connect n231 n234 0.2ms
+connect n231 n300 0.2ms
+connect n231 n331 0.2ms
+connect n231 n439 0.2ms
+connect n231 n480 0.2ms
+connect n231 n508 0.2ms
+connect n234 n294 0.2ms
+connect n234 n405 0.2ms
+connect n235 n386 0.2ms
+connect n235 n412 0.2ms
+connect n238 n353 0.2ms
+connect n239 n259 0.2ms
+connect n239 n428 0.2ms
+connect n240 n337 0.2ms
+connect n240 n421 0.2ms
+connect n244 n483 0.2ms
+connect n247 n389 0.2ms
+connect n250 n262 0.2ms
+connect n250 n320 0.2ms
+connect n250 n482 0.2ms
+connect n251 n317 0.2ms
+connect n252 n354 0.2ms
+connect n252 n404 0.2ms
+connect n253 n463 0.2ms
+connect n256 n415 0.2ms
+connect n257 n472 0.2ms
+connect n258 n425 0.2ms
+connect n259 n423 0.2ms
+connect n260 n278 0.2ms
+connect n262 n445 0.2ms
+connect n264 n351 0.2ms
+connect n268 n297 0.2ms
+connect n268 n312 0.2ms
+connect n268 n345 0.2ms
+connect n271 n479 0.2ms
+connect n272 n277 0.2ms
+connect n273 n350 0.2ms
+connect n277 n293 0.2ms
+connect n278 n461 0.2ms
+connect n280 n418 0.2ms
+connect n280 n439 0.2ms
+connect n280 n448 0.2ms
+connect n282 n345 0.2ms
+connect n282 n457 0.2ms
+connect n287 n420 0.2ms
+connect n288 n296 0.2ms
+connect n290 n504 0.2ms
+connect n291 n341 0.2ms
+connect n291 n358 0.2ms
+connect n291 n462 0.2ms
+connect n292 n502 0.2ms
+connect n294 n338 0.2ms
+connect n295 n321 0.2ms
+connect n297 n427 0.2ms
+connect n299 n411 0.2ms
+connect n300 n453 0.2ms
+connect n301 n305 0.2ms
+connect n301 n373 0.2ms
+connect n301 n498 0.2ms
+connect n303 n304 0.2ms
+connect n308 n409 0.2ms
+connect n318 n465 0.2ms
+connect n319 n418 0.2ms
+connect n321 n470 0.2ms
+connect n322 n410 0.2ms
+connect n326 n375 0.2ms
+connect n326 n435 0.2ms
+connect n328 n331 0.2ms
+connect n330 n438 0.2ms
+connect n332 n352 0.2ms
+connect n340 n484 0.2ms
+connect n341 n494 0.2ms
+connect n347 n436 0.2ms
+connect n349 n456 0.2ms
+connect n350 n402 0.2ms
+connect n353 n416 0.2ms
+connect n355 n469 0.2ms
+connect n366 n393 0.2ms
+connect n366 n464 0.2ms
+connect n366 n491 0.2ms
+connect n368 n398 0.2ms
+connect n368 n434 0.2ms
+connect n371 n414 0.2ms
+connect n371 n425 0.2ms
+connect n372 n467 0.2ms
+connect n376 n447 0.2ms
+connect n377 n437 0.2ms
+connect n382 n441 0.2ms
+connect n384 n460 0.2ms
+connect n384 n463 0.2ms
+connect n391 n479 0.2ms
+connect n392 n415 0.2ms
+connect n399 n452 0.2ms
+connect n399 n454 0.2ms
+connect n403 n456 0.2ms
+connect n403 n505 0.2ms
+connect n411 n507 0.2ms
+connect n414 n443 0.2ms
+connect n415 n489 0.2ms
+connect n416 n453 0.2ms
+connect n416 n475 0.2ms
+connect n416 n500 0.2ms
+connect n418 n499 0.2ms
+connect n427 n472 0.2ms
+connect n433 n490 0.2ms
+connect n433 n495 0.2ms
+connect n437 n494 0.2ms
+connect n438 n477 0.2ms
+connect n450 n502 0.2ms
+connect n459 n510 0.2ms
+
+# build
+build-network
+ping all

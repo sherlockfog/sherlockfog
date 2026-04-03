@@ -1,0 +1,42 @@
+# vars
+let baseLat 0.2
+let graphSize 10
+
+# nodes
+def n0
+def n1
+def n2
+def n3
+def n4
+def n5
+def n6
+def n7
+def n8
+def n9
+
+# edges
+connect n0 n2 0.2ms
+connect n0 n3 0.2ms
+connect n0 n7 0.2ms
+connect n1 n2 0.2ms
+connect n2 n3 0.2ms
+connect n2 n4 0.2ms
+connect n2 n5 0.2ms
+connect n2 n6 0.2ms
+connect n2 n8 0.2ms
+connect n2 n9 0.2ms
+connect n3 n4 0.2ms
+connect n3 n9 0.2ms
+connect n4 n5 0.2ms
+connect n4 n6 0.2ms
+connect n4 n7 0.2ms
+connect n7 n8 0.2ms
+
+# build
+build-network
+
+#
+for i in 0..10 do run n{i} netns n{i} ip r | sort -k5 >&2
+
+ping all
+savegraph test_routing.pdf

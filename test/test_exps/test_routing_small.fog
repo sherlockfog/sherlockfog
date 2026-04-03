@@ -1,0 +1,22 @@
+# vars
+let baseLat 0.2
+let graphSize 4
+
+# nodes
+def n0
+def n1
+def n2
+def n3
+
+# edges
+connect n0 n2 0.2ms
+connect n1 n2 0.2ms
+connect n1 n3 0.2ms
+connect n2 n3 0.2ms
+
+# build
+build-network
+
+#ping all
+shelladm
+#savegraph test_routing_small.pdf

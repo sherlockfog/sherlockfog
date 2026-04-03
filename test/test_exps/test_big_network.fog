@@ -103,5 +103,10 @@ connect n50 n62
 connect n88 n89
 connect n88 n92
 
+set-delay all 0.2ms
+set-bandwidth all 100mbps
+
 #### build
 build-network
+
+ping all

@@ -1,0 +1,10 @@
+let n 1
+let f trdrtdrt
+let n {{ n * 2 }}
+let q {{ f + "asdads" }}
+let q{q} 123
+let x sum
+for k in 0..100 do
+   let m {{ k+1 }}
+end for
+for j in 0..10 do let m {{ j + 1 }}

@@ -11,13 +11,13 @@ setup(
     url = "https://gitlab.licar.exp.dc.uba.ar/sherlockfog/sherlockfog/",
     description = "SherlockFog",
     long_description = long_description,
-    license = "GPL3",
+    license = "AGPL-3.0-only",
     platforms = ['linux'],
 
     classifiers = [
         "Development Status :: 5 - Production/Stable",
         "Intended Audience :: Network Researchers",
-        "License :: OSI Approved :: GNU General Public License (GPL)",
+        "License :: OSI Approved :: GNU Affero General Public License v3",
         "Operating System :: Linux",
         "Programming Language :: Python",
         "Programming Language :: Python :: 3",

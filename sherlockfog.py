@@ -24,9 +24,12 @@ import requests
 
 import importlib.resources as pkg_resources
 
-global logger, docker_info
+global logger
 logger = None
-docker_info = None
+
+PROJECT_URL = 'https://github.com/sherlockfog/sherlockfog/'
+LICENSE_NAME = 'GNU Affero General Public License v3.0'
+LICENSE_SPDX = 'AGPL-3.0-only'
 
 if tuple(int(x) for x in platform.python_version_tuple()) < (3, 9, 0):
     sys.stderr('Requires Python version >= 3.9.0')
@@ -161,6 +164,37 @@ def init_logging(args, silent=False):
     ch.setFormatter(formatter)
     logger.addHandler(ch)
     return logger
+
+def _git_output(args):
+    try:
+        return subprocess.check_output(['git'] + args, text=True, stderr=subprocess.DEVNULL).strip()
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+def discover_source_repository_url():
+    remote = _git_output(['remote', 'get-url', 'origin'])
+    if remote is None:
+        return PROJECT_URL
+    m = re.match(r'^git@([^:]+):(.+?)(?:\.git)?$', remote)
+    if m:
+        return 'https://{0}/{1}/'.format(m.group(1), m.group(2))
+    m = re.match(r'^(https?://.+?)(?:\.git)?$', remote)
+    if m:
+        return m.group(1)
+    return remote
+
+def discover_source_commit():
+    return _git_output(['rev-parse', 'HEAD'])
+
+def discover_source_dirty():
+    try:
+        subprocess.check_call(['git', 'diff', '--quiet'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.check_call(['git', 'diff', '--cached', '--quiet'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return False
+    except subprocess.CalledProcessError:
+        return True
+    except (OSError, subprocess.SubprocessError):
+        return None
 
 def debug_route(host, r, if1, ns=None):
     logger.debug("ROUTE {0} -> {1} via {2} ns:{3}".format(host.name, r, if1, ns))
@@ -485,6 +519,11 @@ class RestAPINetworkStatusEntity(RestAPIEntity):
     def get(self, pool, *args):
         return {'network_status': pool.network_status()}
 
+class RestAPILicenseEntity(RestAPIEntity):
+    name = 'license'
+    def get(self, pool, *args):
+        return {'license': pool.license_info()}
+
 class RestAPIRequestHandler(http.server.BaseHTTPRequestHandler):
     # List entity classes based on RestAPIEntity subclassing and existence of 'name' attribute.
     # Newly defined entities with those characteristics will be registered automatically here.
@@ -579,11 +618,24 @@ class HostPool(object):
         self.pending_tasks = []
         self.main_pid = os.getpid()
         self.rest_api_manager = RestAPIManager(self)
+        self.source_repository_url = discover_source_repository_url()
+        self.source_commit = discover_source_commit()
+        self.source_dirty = discover_source_dirty()
     def global_status(self):
         return {
             'main_pid': self.main_pid,
             'network_status': self.network_status(),
             'args': self.args,
+        }
+    def license_info(self):
+        return {
+            'name': LICENSE_NAME,
+            'spdx_id': LICENSE_SPDX,
+            'project_url': PROJECT_URL,
+            'source_repository': self.source_repository_url,
+            'source_commit': self.source_commit,
+            'source_dirty': self.source_dirty,
+            'corresponding_source_notice': 'If you are interacting with a modified version of SherlockFog over a network, the operator should provide the Corresponding Source of that version under AGPLv3 section 13.',
         }
     def network_status(self):
         if self.network_built:
@@ -2366,12 +2418,12 @@ class Host(BaseHost):
             self.init_docker()
 
     def init_docker(self):
-        sshd_cmd = '/usr/sbin/sshd -u0 -o UseDNS=no -o MaxSessions=1023 -o MaxStartups=1023'
+        sshd_cmd = '/usr/sbin/sshd -u0 -o UseDNS=no -o MaxSessions=100000 -o MaxStartups=100000'
         image = self.args.docker_image
         cpu_exclusive = ''
         if self.args.cpu_exclusive:
             try:
-                _, unused_core = self.real_host.get_unused_core()
+                numa_node, unused_core = self.real_host.get_unused_core()
             except StopIteration:
                 self.emergency_close()
                 raise RuntimeError('Tried to allocate core for host {0} but no cores available.'.format(self.name))
@@ -2383,19 +2435,15 @@ class Host(BaseHost):
             '/run/sshd:/run/sshd',
             '/root/.ssh:/root/.ssh',
         ] + self.__build_docker_storage_bind()])
-        if docker_info and docker_info.get('ServerVersion') >= '25':
-            docker_run_opts = '--runtime=nsmux --network=none -e NSMUX_NSPATH=/run/netns/{0} {1}'.format(self.name, image)
-            sshd_cmd = '/usr/sbin/sshd -D -u0 -o UseDNS=no -o MaxSessions=1023 -o MaxStartups=1023'
-            # manually mount hosts file mapped from vhost netns since commands are not executed through ip netns exec
-            bind_mounts += ' --volume /etc/netns/{}/hosts:/etc/hosts:ro'.format(self.name)
-        else:
-            docker_run_opts = '--network=host --entrypoint "/sbin/ip" {1} netns exec {0}'.format(self.name, image)
         self.exec_('''docker run -d --hostname {0} --name {0} \
             {1} \
             --privileged \
+            --network=host \
             {2} \
-            {3} /usr/local/bin/dumb-init -- {4}'''.format(
-                self.name, bind_mounts, cpu_exclusive, docker_run_opts, sshd_cmd))
+            --entrypoint "/sbin/ip" \
+            {3} \
+            netns exec {0} /usr/local/bin/dumb-init -- {4}'''.format(
+                self.name, bind_mounts, cpu_exclusive, image, sshd_cmd))
         self.schedule_cleanup_command('docker container rm {0}'.format(self.name))
         self.schedule_cleanup_command('docker stop {0}'.format(self.name))
 
@@ -3043,45 +3091,6 @@ def check_ip_prefix(prefix, prefix_name='base'):
         sys.exit(1)
     return ret
 
-def check_docker_configuration(docker_system_info):
-    try:
-        docker_info = json.loads(docker_system_info)
-    except json.decoder.JSONDecodeError as e:
-        raise ValueError('Invalid Docker configuration: could not parse Docker system info') from e
-
-    server_version = docker_info.get('ServerVersion')
-    runtimes = docker_info.get('Runtimes')
-
-    if server_version is None:
-        raise ValueError('Invalid Docker configuration: missing ServerVersion')
-    if runtimes is None:
-        raise ValueError('Invalid Docker configuration: missing Runtimes')
-    if not isinstance(runtimes, dict):
-        raise ValueError('Invalid Docker configuration: Runtimes must be a dictionary')
-
-    match = re.match(r'^(\d+)', str(server_version))
-    if match is None:
-        raise ValueError('Invalid Docker configuration: malformed ServerVersion: {}'.format(server_version))
-
-    major_version = int(match.group(1))
-    if major_version >= 25 and 'nsmux' not in runtimes:
-        raise ValueError(
-            'Invalid Docker configuration: Docker version 25 or above (current: {}) requires nsmux-runc'.format(
-                server_version
-            )
-        )
-
-    return {
-        'ServerVersion': server_version,
-        'Runtimes': runtimes,
-    }
-
-def get_docker_system_info():
-    return subprocess.check_output(
-        ['docker', 'system', 'info', '-f', 'json'],
-        text=True,
-    )
-
 def load_real_host_list(pool, real_host_list):
     rhl = None
     to_close = False
@@ -3218,7 +3227,6 @@ if __name__ == '__main__':
         args.max_parallel_workers = 1
 
     # Sanity checks
-    docker_info = None
     iface_base_network = check_ip_prefix(args.base_prefix, prefix_name='base')
     if args.use_adm_ns:
         iface_base_adm_network = check_ip_prefix(args.base_adm_prefix, prefix_name='administrative')
@@ -3234,15 +3242,8 @@ if __name__ == '__main__':
         logger.warning('Expose administrative private network enabled but administrative network is not, ignoring')
 
     if args.docker and args.docker_image is None:
-        logger.error('Docker mode enabled but no image set')
+        logger.error('Docker mode enabled but no image set.')
         sys.exit(2)
-    if args.docker:
-        try:
-            docker_system_info = get_docker_system_info()
-            docker_info = check_docker_configuration(docker_system_info)
-        except (OSError, subprocess.SubprocessError, ValueError) as e:
-            logger.error(str(e))
-            sys.exit(2)
 
     # Discover default interface if not given in case we need to create an adm vhost
     if args.adm_iface_addr is None:
